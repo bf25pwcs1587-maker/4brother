@@ -1,0 +1,6 @@
+{
+  "name": "4broters",
+  "description": "Secure, private and shared family hub for Mahmood Khan, Azhar Mahmood, Talha Mahmood, and Sabaz Ali Khan.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
