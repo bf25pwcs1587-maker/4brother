@@ -105,6 +105,10 @@ export const PrivateSpaceView: React.FC<PrivateSpaceViewProps> = ({
     name: ''
   });
   const [isDeleting, setIsDeleting] = useState(false);
+  const [txError, setTxError] = useState<string | null>(null);
+  const [taskError, setTaskError] = useState<string | null>(null);
+  const [noteError, setNoteError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Filters
   const [txFilterType, setTxFilterType] = useState<'all' | 'income' | 'expense'>('all');
@@ -116,16 +120,16 @@ export const PrivateSpaceView: React.FC<PrivateSpaceViewProps> = ({
   const loadData = async () => {
     setLoading(true);
     try {
-      const [txs, summary, tlist, nlist] = await Promise.all([
+      const [txsRes, summaryRes, tlistRes, nlistRes] = await Promise.allSettled([
         api.privateMoney.getAll(),
         api.privateMoney.getSummary(),
         api.privateTasks.getAll(),
         api.privateNotes.getAll()
       ]);
-      setTransactions(txs);
-      setMoneySummary(summary);
-      setTasks(tlist);
-      setNotes(nlist);
+      if (txsRes.status === 'fulfilled') setTransactions(txsRes.value);
+      if (summaryRes.status === 'fulfilled') setMoneySummary(summaryRes.value);
+      if (tlistRes.status === 'fulfilled') setTasks(tlistRes.value);
+      if (nlistRes.status === 'fulfilled') setNotes(nlistRes.value);
     } catch (err: any) {
       console.error('Failed to load private data:', err);
     } finally {
@@ -142,6 +146,7 @@ export const PrivateSpaceView: React.FC<PrivateSpaceViewProps> = ({
     if (defaultAction === 'private-expense') {
       setSubTab('money');
       setEditingTx(null);
+      setTxError(null);
       setTxForm({
         type: 'expense',
         amount: '',
@@ -155,6 +160,7 @@ export const PrivateSpaceView: React.FC<PrivateSpaceViewProps> = ({
     } else if (defaultAction === 'private-task') {
       setSubTab('tasks');
       setEditingTask(null);
+      setTaskError(null);
       setTaskForm({
         title: '',
         description: '',
@@ -168,6 +174,7 @@ export const PrivateSpaceView: React.FC<PrivateSpaceViewProps> = ({
     } else if (defaultAction === 'private-note') {
       setSubTab('notes');
       setEditingNote(null);
+      setNoteError(null);
       setNoteForm({
         title: '',
         content: '',
@@ -182,12 +189,15 @@ export const PrivateSpaceView: React.FC<PrivateSpaceViewProps> = ({
   // --- Transactions Handlers ---
   const handleSaveTx = async (e: React.FormEvent) => {
     e.preventDefault();
-    const amountNum = parseFloat(txForm.amount);
+    setTxError(null);
+    const cleanAmount = String(txForm.amount).replace(/[^0-9.]/g, '');
+    const amountNum = parseFloat(cleanAmount);
     if (isNaN(amountNum) || amountNum <= 0) {
-      alert('Please enter a valid positive amount.');
+      setTxError('Please enter a valid positive amount.');
       return;
     }
 
+    setIsSubmitting(true);
     try {
       if (editingTx) {
         await api.privateMoney.update(editingTx.id, {
@@ -202,14 +212,18 @@ export const PrivateSpaceView: React.FC<PrivateSpaceViewProps> = ({
       }
       setIsTxModalOpen(false);
       setEditingTx(null);
-      loadData();
+      setTxError(null);
+      await loadData();
     } catch (err: any) {
-      alert(err.message);
+      setTxError(err.message || 'Failed to save transaction.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleEditTx = (tx: PersonalTransaction) => {
     setEditingTx(tx);
+    setTxError(null);
     setTxForm({
       type: tx.type,
       amount: String(tx.amount),
@@ -224,11 +238,13 @@ export const PrivateSpaceView: React.FC<PrivateSpaceViewProps> = ({
   // --- Tasks Handlers ---
   const handleSaveTask = async (e: React.FormEvent) => {
     e.preventDefault();
+    setTaskError(null);
     if (!taskForm.title.trim()) {
-      alert('Task title is required.');
+      setTaskError('Task title is required.');
       return;
     }
 
+    setIsSubmitting(true);
     try {
       if (editingTask) {
         await api.privateTasks.update(editingTask.id, taskForm);
@@ -237,24 +253,31 @@ export const PrivateSpaceView: React.FC<PrivateSpaceViewProps> = ({
       }
       setIsTaskModalOpen(false);
       setEditingTask(null);
-      loadData();
+      setTaskError(null);
+      await loadData();
     } catch (err: any) {
-      alert(err.message);
+      setTaskError(err.message || 'Failed to save task.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleToggleTaskStatus = async (task: PrivateTask) => {
     const newStatus = task.status === 'pending' ? 'completed' : 'pending';
     try {
+      // Optimistic update
+      setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, status: newStatus } : t)));
       await api.privateTasks.toggleStatus(task.id, newStatus);
       loadData();
     } catch (err: any) {
-      alert(err.message);
+      console.error('Failed to update task status:', err);
+      loadData();
     }
   };
 
   const handleEditTask = (task: PrivateTask) => {
     setEditingTask(task);
+    setTaskError(null);
     setTaskForm({
       title: task.title,
       description: task.description || '',
@@ -269,11 +292,13 @@ export const PrivateSpaceView: React.FC<PrivateSpaceViewProps> = ({
   // --- Notes Handlers ---
   const handleSaveNote = async (e: React.FormEvent) => {
     e.preventDefault();
+    setNoteError(null);
     if (!noteForm.title.trim()) {
-      alert('Note title is required.');
+      setNoteError('Note title is required.');
       return;
     }
 
+    setIsSubmitting(true);
     try {
       if (editingNote) {
         await api.privateNotes.update(editingNote.id, noteForm);
@@ -282,14 +307,18 @@ export const PrivateSpaceView: React.FC<PrivateSpaceViewProps> = ({
       }
       setIsNoteModalOpen(false);
       setEditingNote(null);
-      loadData();
+      setNoteError(null);
+      await loadData();
     } catch (err: any) {
-      alert(err.message);
+      setNoteError(err.message || 'Failed to save note.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleEditNote = (note: PrivateNote) => {
     setEditingNote(note);
+    setNoteError(null);
     setNoteForm({
       title: note.title,
       content: note.content,
@@ -312,9 +341,9 @@ export const PrivateSpaceView: React.FC<PrivateSpaceViewProps> = ({
         await api.privateNotes.delete(deleteModal.id);
       }
       setDeleteModal({ isOpen: false, type: null, id: null, name: '' });
-      loadData();
+      await loadData();
     } catch (err: any) {
-      alert(err.message);
+      console.error('Failed to delete item:', err);
     } finally {
       setIsDeleting(false);
     }
@@ -885,6 +914,12 @@ export const PrivateSpaceView: React.FC<PrivateSpaceViewProps> = ({
             </div>
 
             <form onSubmit={handleSaveTx} className="p-6 space-y-4">
+              {txError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
+                  <span>{txError}</span>
+                </div>
+              )}
               <div className="flex p-1 bg-slate-100 rounded-xl text-xs">
                 <button
                   type="button"
@@ -980,9 +1015,10 @@ export const PrivateSpaceView: React.FC<PrivateSpaceViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs"
+                  disabled={isSubmitting}
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-semibold shadow-xs flex items-center gap-1.5"
                 >
-                  {editingTx ? 'Update Record' : 'Save Record'}
+                  {isSubmitting ? 'Saving...' : editingTx ? 'Update Record' : 'Save Record'}
                 </button>
               </div>
             </form>
@@ -1007,6 +1043,12 @@ export const PrivateSpaceView: React.FC<PrivateSpaceViewProps> = ({
             </div>
 
             <form onSubmit={handleSaveTask} className="p-6 space-y-4">
+              {taskError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
+                  <span>{taskError}</span>
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Task Title</label>
                 <input
@@ -1086,9 +1128,10 @@ export const PrivateSpaceView: React.FC<PrivateSpaceViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs"
+                  disabled={isSubmitting}
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-semibold shadow-xs flex items-center gap-1.5"
                 >
-                  {editingTask ? 'Update Task' : 'Save Task'}
+                  {isSubmitting ? 'Saving...' : editingTask ? 'Update Task' : 'Save Task'}
                 </button>
               </div>
             </form>
@@ -1113,6 +1156,12 @@ export const PrivateSpaceView: React.FC<PrivateSpaceViewProps> = ({
             </div>
 
             <form onSubmit={handleSaveNote} className="p-6 space-y-4">
+              {noteError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
+                  <span>{noteError}</span>
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Note Title</label>
                 <input
@@ -1175,9 +1224,10 @@ export const PrivateSpaceView: React.FC<PrivateSpaceViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs"
+                  disabled={isSubmitting}
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-semibold shadow-xs flex items-center gap-1.5"
                 >
-                  {editingNote ? 'Update Note' : 'Save Note'}
+                  {isSubmitting ? 'Saving...' : editingNote ? 'Update Note' : 'Save Note'}
                 </button>
               </div>
             </form>

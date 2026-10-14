@@ -15,7 +15,8 @@ import {
   Shield,
   Tag,
   MessageCircle,
-  Send
+  Send,
+  AlertCircle
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.tsx';
 import { api } from '../lib/api.ts';
@@ -143,23 +144,28 @@ export const SharedSpaceView: React.FC<SharedSpaceViewProps> = ({
   // Filters
   const [taskAssigneeFilter, setTaskAssigneeFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [incomeError, setIncomeError] = useState<string | null>(null);
+  const [taskError, setTaskError] = useState<string | null>(null);
+  const [planError, setPlanError] = useState<string | null>(null);
+  const [annError, setAnnError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Initial load
   const loadSharedData = async () => {
     setLoading(true);
     try {
-      const [inc, summary, tasks, plans, anns] = await Promise.all([
+      const [incRes, summaryRes, tasksRes, plansRes, annsRes] = await Promise.allSettled([
         api.sharedIncome.getAll(),
         api.sharedIncome.getSummary(),
         api.sharedTasks.getAll(),
         api.familyPlans.getAll(),
         api.announcements.getAll()
       ]);
-      setIncomeList(inc);
-      setIncomeSummary(summary);
-      setTasksList(tasks);
-      setPlansList(plans);
-      setAnnouncementsList(anns);
+      if (incRes.status === 'fulfilled') setIncomeList(incRes.value);
+      if (summaryRes.status === 'fulfilled') setIncomeSummary(summaryRes.value);
+      if (tasksRes.status === 'fulfilled') setTasksList(tasksRes.value);
+      if (plansRes.status === 'fulfilled') setPlansList(plansRes.value);
+      if (annsRes.status === 'fulfilled') setAnnouncementsList(annsRes.value);
     } catch (err: any) {
       console.error('Failed to load shared space data:', err);
     } finally {
@@ -176,6 +182,7 @@ export const SharedSpaceView: React.FC<SharedSpaceViewProps> = ({
     if (defaultAction === 'shared-income') {
       setSubTab('income');
       setEditingIncome(null);
+      setIncomeError(null);
       setIncomeForm({
         title: '',
         amount: '',
@@ -189,6 +196,7 @@ export const SharedSpaceView: React.FC<SharedSpaceViewProps> = ({
     } else if (defaultAction === 'shared-plan') {
       setSubTab('plans');
       setEditingPlan(null);
+      setPlanError(null);
       setPlanForm({
         title: '',
         description: '',
@@ -204,12 +212,15 @@ export const SharedSpaceView: React.FC<SharedSpaceViewProps> = ({
   // --- Handlers: Shared Income ---
   const handleSaveIncome = async (e: React.FormEvent) => {
     e.preventDefault();
-    const amountNum = parseFloat(incomeForm.amount);
+    setIncomeError(null);
+    const cleanAmount = String(incomeForm.amount).replace(/[^0-9.]/g, '');
+    const amountNum = parseFloat(cleanAmount);
     if (isNaN(amountNum) || amountNum <= 0) {
-      alert('Please enter a valid positive amount.');
+      setIncomeError('Please enter a valid positive amount.');
       return;
     }
 
+    setIsSubmitting(true);
     try {
       if (editingIncome) {
         await api.sharedIncome.update(editingIncome.id, {
@@ -224,14 +235,18 @@ export const SharedSpaceView: React.FC<SharedSpaceViewProps> = ({
       }
       setIsIncomeModalOpen(false);
       setEditingIncome(null);
-      loadSharedData();
+      setIncomeError(null);
+      await loadSharedData();
     } catch (err: any) {
-      alert(err.message);
+      setIncomeError(err.message || 'Failed to save income record.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleEditIncome = (inc: SharedIncome) => {
     setEditingIncome(inc);
+    setIncomeError(null);
     setIncomeForm({
       title: inc.title,
       amount: String(inc.amount),
@@ -246,11 +261,13 @@ export const SharedSpaceView: React.FC<SharedSpaceViewProps> = ({
   // --- Handlers: Shared Tasks ---
   const handleSaveTask = async (e: React.FormEvent) => {
     e.preventDefault();
+    setTaskError(null);
     if (!taskForm.title.trim()) {
-      alert('Title is required.');
+      setTaskError('Title is required.');
       return;
     }
 
+    setIsSubmitting(true);
     try {
       let resultTask: any = null;
       if (editingTask) {
@@ -261,7 +278,8 @@ export const SharedSpaceView: React.FC<SharedSpaceViewProps> = ({
 
       setIsTaskModalOpen(false);
       setEditingTask(null);
-      loadSharedData();
+      setTaskError(null);
+      await loadSharedData();
 
       // Trigger automatic WhatsApp alert prompt
       if (sendWhatsAppAlert) {
@@ -278,22 +296,28 @@ export const SharedSpaceView: React.FC<SharedSpaceViewProps> = ({
         });
       }
     } catch (err: any) {
-      alert(err.message);
+      setTaskError(err.message || 'Failed to save task.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleToggleTaskStatus = async (task: SharedTask) => {
     const newStatus = task.status === 'pending' ? 'completed' : 'pending';
     try {
+      // Optimistic update
+      setTasksList((prev) => prev.map((t) => (t.id === task.id ? { ...t, status: newStatus } : t)));
       await api.sharedTasks.toggleStatus(task.id, newStatus);
       loadSharedData();
     } catch (err: any) {
-      alert(err.message);
+      console.error('Failed to toggle task status:', err);
+      loadSharedData();
     }
   };
 
   const handleEditTask = (task: SharedTask) => {
     setEditingTask(task);
+    setTaskError(null);
     setTaskForm({
       title: task.title,
       description: task.description || '',
@@ -309,11 +333,13 @@ export const SharedSpaceView: React.FC<SharedSpaceViewProps> = ({
   // --- Handlers: Family Plans ---
   const handleSavePlan = async (e: React.FormEvent) => {
     e.preventDefault();
+    setPlanError(null);
     if (!planForm.title.trim() || !planForm.date) {
-      alert('Title and Date are required.');
+      setPlanError('Title and Date are required.');
       return;
     }
 
+    setIsSubmitting(true);
     try {
       if (editingPlan) {
         await api.familyPlans.update(editingPlan.id, planForm);
@@ -322,14 +348,18 @@ export const SharedSpaceView: React.FC<SharedSpaceViewProps> = ({
       }
       setIsPlanModalOpen(false);
       setEditingPlan(null);
-      loadSharedData();
+      setPlanError(null);
+      await loadSharedData();
     } catch (err: any) {
-      alert(err.message);
+      setPlanError(err.message || 'Failed to save plan.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleEditPlan = (plan: FamilyPlan) => {
     setEditingPlan(plan);
+    setPlanError(null);
     setPlanForm({
       title: plan.title,
       description: plan.description || '',
@@ -343,11 +373,13 @@ export const SharedSpaceView: React.FC<SharedSpaceViewProps> = ({
   // --- Handlers: Announcements ---
   const handleSaveAnnouncement = async (e: React.FormEvent) => {
     e.preventDefault();
+    setAnnError(null);
     if (!annForm.title.trim() || !annForm.content.trim()) {
-      alert('Title and Content are required.');
+      setAnnError('Title and Content are required.');
       return;
     }
 
+    setIsSubmitting(true);
     try {
       if (editingAnn) {
         await api.announcements.update(editingAnn.id, annForm);
@@ -356,14 +388,18 @@ export const SharedSpaceView: React.FC<SharedSpaceViewProps> = ({
       }
       setIsAnnModalOpen(false);
       setEditingAnn(null);
-      loadSharedData();
+      setAnnError(null);
+      await loadSharedData();
     } catch (err: any) {
-      alert(err.message);
+      setAnnError(err.message || 'Failed to post announcement.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleEditAnn = (ann: FamilyAnnouncement) => {
     setEditingAnn(ann);
+    setAnnError(null);
     setAnnForm({
       title: ann.title,
       content: ann.content,
@@ -388,9 +424,9 @@ export const SharedSpaceView: React.FC<SharedSpaceViewProps> = ({
         await api.announcements.delete(deleteModal.id);
       }
       setDeleteModal({ isOpen: false, type: null, id: null, name: '' });
-      loadSharedData();
+      await loadSharedData();
     } catch (err: any) {
-      alert(err.message);
+      console.error('Failed to delete shared item:', err);
     } finally {
       setIsDeleting(false);
     }
@@ -1016,6 +1052,12 @@ export const SharedSpaceView: React.FC<SharedSpaceViewProps> = ({
             </div>
 
             <form onSubmit={handleSaveIncome} className="p-6 space-y-4">
+              {incomeError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
+                  <span>{incomeError}</span>
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Source / Title</label>
                 <input
@@ -1099,9 +1141,10 @@ export const SharedSpaceView: React.FC<SharedSpaceViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold shadow-xs"
+                  disabled={isSubmitting}
+                  className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-semibold shadow-xs flex items-center gap-1.5"
                 >
-                  {editingIncome ? 'Update Record' : 'Save Shared Income'}
+                  {isSubmitting ? 'Saving...' : editingIncome ? 'Update Record' : 'Save Shared Income'}
                 </button>
               </div>
             </form>
@@ -1121,6 +1164,12 @@ export const SharedSpaceView: React.FC<SharedSpaceViewProps> = ({
             </div>
 
             <form onSubmit={handleSaveTask} className="p-6 space-y-4">
+              {taskError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
+                  <span>{taskError}</span>
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Task Title</label>
                 <input
@@ -1213,9 +1262,10 @@ export const SharedSpaceView: React.FC<SharedSpaceViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold shadow-xs"
+                  disabled={isSubmitting}
+                  className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-semibold shadow-xs flex items-center gap-1.5"
                 >
-                  {editingTask ? 'Update Task' : 'Save Task'}
+                  {isSubmitting ? 'Saving...' : editingTask ? 'Update Task' : 'Save Task'}
                 </button>
               </div>
             </form>
@@ -1235,6 +1285,12 @@ export const SharedSpaceView: React.FC<SharedSpaceViewProps> = ({
             </div>
 
             <form onSubmit={handleSavePlan} className="p-6 space-y-4">
+              {planError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
+                  <span>{planError}</span>
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Plan Title</label>
                 <input
@@ -1301,9 +1357,10 @@ export const SharedSpaceView: React.FC<SharedSpaceViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold shadow-xs"
+                  disabled={isSubmitting}
+                  className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-semibold shadow-xs flex items-center gap-1.5"
                 >
-                  {editingPlan ? 'Update Plan' : 'Save Plan'}
+                  {isSubmitting ? 'Saving...' : editingPlan ? 'Update Plan' : 'Save Plan'}
                 </button>
               </div>
             </form>
@@ -1323,6 +1380,12 @@ export const SharedSpaceView: React.FC<SharedSpaceViewProps> = ({
             </div>
 
             <form onSubmit={handleSaveAnnouncement} className="p-6 space-y-4">
+              {annError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
+                  <span>{annError}</span>
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Title</label>
                 <input
@@ -1381,9 +1444,10 @@ export const SharedSpaceView: React.FC<SharedSpaceViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold shadow-xs"
+                  disabled={isSubmitting}
+                  className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-semibold shadow-xs flex items-center gap-1.5"
                 >
-                  {editingAnn ? 'Update Announcement' : 'Post Announcement'}
+                  {isSubmitting ? 'Saving...' : editingAnn ? 'Update Announcement' : 'Post Announcement'}
                 </button>
               </div>
             </form>

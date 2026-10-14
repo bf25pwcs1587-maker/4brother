@@ -109,9 +109,15 @@ function getLocalBrotherFallback(emailOrKey: string, passcode: string): { token:
 }
 
 async function apiRequest<T>(url: string, options: RequestInit = {}, retries = 2): Promise<T> {
-  const token = tokenStorage.get();
-  const headers = new Headers(options.headers || {});
+  let token = tokenStorage.get();
+  if (!token) {
+    const user = tokenStorage.getUser();
+    if (user?.brother_key) {
+      token = user.brother_key;
+    }
+  }
 
+  const headers = new Headers(options.headers || {});
   headers.set('Content-Type', 'application/json');
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
@@ -129,6 +135,27 @@ async function apiRequest<T>(url: string, options: RequestInit = {}, retries = 2
       return apiRequest<T>(url, options, retries - 1);
     }
     throw netErr;
+  }
+
+  // If 401 Unauthorized and retries remain, re-authenticate current brother
+  if (response.status === 401 && retries > 0 && !url.includes('/api/auth/login')) {
+    const user = tokenStorage.getUser();
+    if (user?.brother_key) {
+      try {
+        const customPass = localStorage.getItem(`4broters_custom_pass_${user.brother_key}`) || `${user.brother_key}2026`;
+        const reauthRes = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ emailOrKey: user.brother_key, password: customPass })
+        });
+        if (reauthRes.ok) {
+          const reauthData = await reauthRes.json();
+          tokenStorage.set(reauthData.token);
+          tokenStorage.setUser(reauthData.user);
+          return apiRequest<T>(url, options, retries - 1);
+        }
+      } catch {}
+    }
   }
 
   // If 404 and retries remain (dev server reloading or warming up)

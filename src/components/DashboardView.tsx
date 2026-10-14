@@ -49,6 +49,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [switchingToKey, setSwitchingToKey] = useState<string | null>(null);
+  const [switchNotice, setSwitchNotice] = useState<string | null>(null);
 
   const fetchDashboard = async () => {
     try {
@@ -69,20 +70,38 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const handleTogglePrivateTask = async (taskId: string, currentStatus: string) => {
     const newStatus = currentStatus === 'pending' ? 'completed' : 'pending';
     try {
+      if (data) {
+        setData({
+          ...data,
+          upcomingPrivateTasks: data.upcomingPrivateTasks.map((t) =>
+            t.id === taskId ? { ...t, status: newStatus as any } : t
+          )
+        });
+      }
       await api.privateTasks.toggleStatus(taskId, newStatus);
       fetchDashboard();
     } catch (err: any) {
-      alert(err.message);
+      console.error('Failed to toggle private task:', err);
+      fetchDashboard();
     }
   };
 
   const handleToggleSharedTask = async (taskId: string, currentStatus: string) => {
     const newStatus = currentStatus === 'pending' ? 'completed' : 'pending';
     try {
+      if (data) {
+        setData({
+          ...data,
+          upcomingSharedTasks: data.upcomingSharedTasks.map((t) =>
+            t.id === taskId ? { ...t, status: newStatus as any } : t
+          )
+        });
+      }
       await api.sharedTasks.toggleStatus(taskId, newStatus);
       fetchDashboard();
     } catch (err: any) {
-      alert(err.message);
+      console.error('Failed to toggle shared task:', err);
+      fetchDashboard();
     }
   };
 
@@ -208,6 +227,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         )}
 
+        {switchNotice && (
+          <div className="mt-3 p-3 bg-amber-500/20 border border-amber-400/40 rounded-xl text-amber-200 text-xs flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-300 shrink-0" />
+              <span>{switchNotice}</span>
+            </div>
+            <button onClick={() => setSwitchNotice(null)} className="text-amber-300 hover:text-white text-xs font-bold px-2 py-0.5">✕</button>
+          </div>
+        )}
+
         {/* 1-Click Brother Hub Switcher Bar */}
         <div className="mt-4 pt-3.5 border-t border-white/10 flex flex-wrap items-center justify-between gap-2.5 text-xs">
           <div className="flex items-center gap-2 text-slate-300">
@@ -223,17 +252,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <button
                   key={m.id}
                   disabled={isCurrent || switchingToKey !== null}
-                  onClick={async () => {
-                    setSwitchingToKey(m.brother_key);
-                    try {
-                      await login(m.brother_key, m.brother_key + '2026');
-                    } catch (err: any) {
-                      alert(err.message || 'Custom password required for this brother.');
-                    } finally {
-                      setSwitchingToKey(null);
-                    }
-                  }}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all ${
+                    onClick={async () => {
+                      setSwitchingToKey(m.brother_key);
+                      setSwitchNotice(null);
+                      try {
+                        await login(m.brother_key, m.brother_key + '2026');
+                      } catch (err: any) {
+                        setSwitchNotice(
+                          err.message?.includes('Incorrect passcode')
+                            ? `Custom password required for ${m.full_name}. Please sign in with their updated passcode.`
+                            : (err.message || 'Custom password required for this brother.')
+                        );
+                      } finally {
+                        setSwitchingToKey(null);
+                      }
+                    }}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all ${
                     isCurrent
                       ? 'bg-emerald-500 text-white shadow-sm ring-1 ring-white/30 cursor-default'
                       : 'bg-white/10 hover:bg-white/20 text-slate-100 border border-white/15'
