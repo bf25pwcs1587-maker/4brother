@@ -196,7 +196,12 @@ export const SignInModal: React.FC<SignInModalProps> = ({ onOpenGuide, onSuccess
                 return (
                   <div
                     key={b.key}
-                    className={`relative p-3.5 rounded-2xl border transition-all text-left flex flex-col justify-between ${
+                    onClick={() => {
+                      if (!loading) {
+                        handleQuickOpen(b.key, b.defaultPasscode);
+                      }
+                    }}
+                    className={`relative p-3.5 rounded-2xl border transition-all text-left flex flex-col justify-between cursor-pointer group hover:scale-[1.01] active:scale-[0.99] ${
                       isSelected
                         ? 'border-indigo-600 bg-indigo-50/70 ring-2 ring-indigo-600/20 shadow-sm'
                         : 'border-slate-200 bg-slate-50/50 hover:bg-slate-100/70 hover:border-slate-300'
@@ -215,7 +220,7 @@ export const SignInModal: React.FC<SignInModalProps> = ({ onOpenGuide, onSuccess
                       </div>
 
                       <div className="min-w-0 flex-1">
-                        <p className={`text-sm font-bold truncate ${isSelected ? 'text-indigo-950' : 'text-slate-900'}`}>
+                        <p className={`text-sm font-bold truncate ${isSelected ? 'text-indigo-950' : 'text-slate-900 group-hover:text-indigo-950'}`}>
                           {displayName}
                         </p>
                         <p className="text-[11px] text-slate-500 font-mono truncate">{phoneDisplay}</p>
@@ -227,11 +232,14 @@ export const SignInModal: React.FC<SignInModalProps> = ({ onOpenGuide, onSuccess
                       <button
                         type="button"
                         disabled={loading}
-                        onClick={() => handleQuickOpen(b.key, b.defaultPasscode)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleQuickOpen(b.key, b.defaultPasscode);
+                        }}
                         className={`flex-1 py-1.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-xs ${
                           isSelected
                             ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
-                            : 'bg-slate-900 hover:bg-slate-800 text-white'
+                            : 'bg-slate-900 hover:bg-slate-800 text-white group-hover:bg-indigo-600'
                         }`}
                       >
                         {isThisLoading ? (
@@ -250,7 +258,8 @@ export const SignInModal: React.FC<SignInModalProps> = ({ onOpenGuide, onSuccess
                       <button
                         type="button"
                         title="Enter custom password"
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation();
                           setSelectedBrotherKey(b.key);
                           setPasscode(b.defaultPasscode);
                           setShowCustomPasswordInput(true);

@@ -18,9 +18,18 @@ async function startServer() {
 
   const app = express();
   const isProduction = process.env.NODE_ENV === 'production';
-  const PORT = isProduction
-    ? parseInt(process.env.PORT || '8080', 10)
-    : parseInt(process.env.DEFAULT_APP_PORT || '3000', 10);
+  const PORT = parseInt(process.env.DEFAULT_APP_PORT || '3000', 10);
+
+  // Enable CORS & options preflight
+  app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
 
   // Parse JSON payloads
   app.use(express.json());
