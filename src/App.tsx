@@ -43,6 +43,8 @@ function AppContent() {
       <>
         <SignInModal
           onOpenGuide={() => setIsGuideOpen(true)}
+          onSuccess={() => setIsSwitchBrotherOpen(false)}
+          onCancel={user ? () => setIsSwitchBrotherOpen(false) : undefined}
         />
         <DeploymentGuideModal
           isOpen={isGuideOpen}

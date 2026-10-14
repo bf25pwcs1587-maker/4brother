@@ -44,10 +44,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onOpenQuickAction,
   onOpenProfile
 }) => {
-  const { user, familyMembers } = useAuth();
+  const { user, familyMembers, login } = useAuth();
   const [data, setData] = useState<DashboardOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [switchingToKey, setSwitchingToKey] = useState<string | null>(null);
 
   const fetchDashboard = async () => {
     try {
@@ -206,6 +207,53 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
         )}
+
+        {/* 1-Click Brother Hub Switcher Bar */}
+        <div className="mt-4 pt-3.5 border-t border-white/10 flex flex-wrap items-center justify-between gap-2.5 text-xs">
+          <div className="flex items-center gap-2 text-slate-300">
+            <Users className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="font-semibold text-white">Switch Brother Account:</span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {familyMembers.map((m) => {
+              const isCurrent = m.id === user?.id;
+              const isSwitching = switchingToKey === m.brother_key;
+              return (
+                <button
+                  key={m.id}
+                  disabled={isCurrent || switchingToKey !== null}
+                  onClick={async () => {
+                    setSwitchingToKey(m.brother_key);
+                    try {
+                      await login(m.brother_key, m.brother_key + '2026');
+                    } catch (err: any) {
+                      alert(err.message || 'Custom password required for this brother.');
+                    } finally {
+                      setSwitchingToKey(null);
+                    }
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all ${
+                    isCurrent
+                      ? 'bg-emerald-500 text-white shadow-sm ring-1 ring-white/30 cursor-default'
+                      : 'bg-white/10 hover:bg-white/20 text-slate-100 border border-white/15'
+                  }`}
+                >
+                  <span
+                    className="w-2.5 h-2.5 rounded-full shrink-0"
+                    style={{ backgroundColor: m.avatar_color }}
+                  ></span>
+                  <span>{isSwitching ? 'Opening...' : m.full_name}</span>
+                  {isCurrent && (
+                    <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-white/20">
+                      Active
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       {/* 2. Top Metric Cards Row: Clearly labeled Private vs Shared */}

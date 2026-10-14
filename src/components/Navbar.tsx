@@ -29,9 +29,10 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenProfile,
   onSwitchBrotherModal
 }) => {
-  const { user, logout } = useAuth();
+  const { user, logout, familyMembers, login } = useAuth();
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [switchingToKey, setSwitchingToKey] = useState<string | null>(null);
 
   if (!user) return null;
 
@@ -211,15 +212,68 @@ export const Navbar: React.FC<NavbarProps> = ({
                         </div>
                       </button>
 
+                      {/* 1-Click Quick Switch to Other Brothers */}
+                      <div className="px-3.5 py-2.5 bg-slate-50/80 border-t border-b border-slate-100">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                            Switch to Brother
+                          </span>
+                          <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800">
+                            1-Click
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {familyMembers
+                            .filter((m) => m.id !== user.id)
+                            .map((m) => {
+                              const isSwitching = switchingToKey === m.brother_key;
+                              return (
+                                <button
+                                  key={m.id}
+                                  type="button"
+                                  disabled={switchingToKey !== null}
+                                  onClick={async () => {
+                                    setSwitchingToKey(m.brother_key);
+                                    try {
+                                      await login(m.brother_key, m.brother_key + '2026');
+                                      setUserDropdownOpen(false);
+                                    } catch {
+                                      setUserDropdownOpen(false);
+                                      onSwitchBrotherModal();
+                                    } finally {
+                                      setSwitchingToKey(null);
+                                    }
+                                  }}
+                                  className="p-1.5 rounded-xl border border-slate-200 bg-white hover:bg-indigo-50 hover:border-indigo-300 text-center transition-all flex flex-col items-center group shadow-2xs"
+                                >
+                                  <div
+                                    className="w-7 h-7 rounded-lg text-white text-[10px] font-bold flex items-center justify-center shrink-0 mb-1 overflow-hidden shadow-xs"
+                                    style={{ backgroundColor: m.avatar_color }}
+                                  >
+                                    {m.avatar_url ? (
+                                      <img src={m.avatar_url} alt={m.full_name} className="w-full h-full object-cover" />
+                                    ) : (
+                                      m.full_name.split(' ').map((n) => n[0]).join('').slice(0, 2)
+                                    )}
+                                  </div>
+                                  <span className="text-[10px] font-bold text-slate-800 group-hover:text-indigo-900 truncate w-full">
+                                    {isSwitching ? '...' : m.full_name.split(' ')[0]}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                        </div>
+                      </div>
+
                       <button
                         onClick={() => {
                           setUserDropdownOpen(false);
                           onSwitchBrotherModal();
                         }}
-                        className="w-full px-4 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 font-medium border-t border-slate-100"
+                        className="w-full px-4 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 font-medium"
                       >
                         <Users className="w-4 h-4 text-slate-400" />
-                        <span>Switch Brother Account</span>
+                        <span>All Accounts / Passcodes</span>
                       </button>
 
                       <button
