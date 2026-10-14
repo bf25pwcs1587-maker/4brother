@@ -16,7 +16,10 @@ async function startServer() {
   initDatabase();
 
   const app = express();
-  const PORT = parseInt(process.env.PORT || '3000', 10);
+  const isProduction = process.env.NODE_ENV === 'production';
+  const PORT = isProduction
+    ? parseInt(process.env.PORT || '8080', 10)
+    : parseInt(process.env.DEFAULT_APP_PORT || '3000', 10);
 
   // Parse JSON payloads
   app.use(express.json());
@@ -25,8 +28,6 @@ async function startServer() {
   app.use('/api', apiRouter);
 
   // Serve static assets or mount Vite dev middleware
-  const isProduction = process.env.NODE_ENV === 'production';
-
   if (!isProduction) {
     const vite = await createViteServer({
       server: {

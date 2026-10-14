@@ -1,9 +1,9 @@
-import { Router, Request, Response } from 'express';
+import express, { type Request, type Response } from 'express';
 import crypto from 'node:crypto';
 import { db, hashPassword, clearExampleData, seedExamples, BROTHERS_CONFIG } from './db.ts';
-import { requireAuth, createSession, deleteSession, AuthRequest } from './auth.ts';
+import { requireAuth, createSession, deleteSession, type AuthRequest } from './auth.ts';
 
-export const apiRouter = Router();
+export const apiRouter = express.Router();
 
 // ============================================================================
 // 1. AUTHENTICATION & BROTHER ACCOUNTS
