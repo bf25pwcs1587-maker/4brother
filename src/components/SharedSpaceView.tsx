@@ -161,11 +161,11 @@ export const SharedSpaceView: React.FC<SharedSpaceViewProps> = ({
         api.familyPlans.getAll(),
         api.announcements.getAll()
       ]);
-      if (incRes.status === 'fulfilled') setIncomeList(incRes.value);
-      if (summaryRes.status === 'fulfilled') setIncomeSummary(summaryRes.value);
-      if (tasksRes.status === 'fulfilled') setTasksList(tasksRes.value);
-      if (plansRes.status === 'fulfilled') setPlansList(plansRes.value);
-      if (annsRes.status === 'fulfilled') setAnnouncementsList(annsRes.value);
+      if (incRes.status === 'fulfilled') setIncomeList(Array.isArray(incRes.value) ? incRes.value : []);
+      if (summaryRes.status === 'fulfilled') setIncomeSummary(summaryRes.value || { total: 0, count: 0, currency: 'PKR', categories: [] });
+      if (tasksRes.status === 'fulfilled') setTasksList(Array.isArray(tasksRes.value) ? tasksRes.value : []);
+      if (plansRes.status === 'fulfilled') setPlansList(Array.isArray(plansRes.value) ? plansRes.value : []);
+      if (annsRes.status === 'fulfilled') setAnnouncementsList(Array.isArray(annsRes.value) ? annsRes.value : []);
     } catch (err: any) {
       console.error('Failed to load shared space data:', err);
     } finally {

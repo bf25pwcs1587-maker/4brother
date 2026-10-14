@@ -126,10 +126,10 @@ export const PrivateSpaceView: React.FC<PrivateSpaceViewProps> = ({
         api.privateTasks.getAll(),
         api.privateNotes.getAll()
       ]);
-      if (txsRes.status === 'fulfilled') setTransactions(txsRes.value);
-      if (summaryRes.status === 'fulfilled') setMoneySummary(summaryRes.value);
-      if (tlistRes.status === 'fulfilled') setTasks(tlistRes.value);
-      if (nlistRes.status === 'fulfilled') setNotes(nlistRes.value);
+      if (txsRes.status === 'fulfilled') setTransactions(Array.isArray(txsRes.value) ? txsRes.value : []);
+      if (summaryRes.status === 'fulfilled') setMoneySummary(summaryRes.value || { totalIncome: 0, totalExpense: 0, netBalance: 0, currency: 'PKR', categoryBreakdown: [] });
+      if (tlistRes.status === 'fulfilled') setTasks(Array.isArray(tlistRes.value) ? tlistRes.value : []);
+      if (nlistRes.status === 'fulfilled') setNotes(Array.isArray(nlistRes.value) ? nlistRes.value : []);
     } catch (err: any) {
       console.error('Failed to load private data:', err);
     } finally {
