@@ -85,7 +85,7 @@ async function apiRequest<T>(url: string, options: RequestInit = {}, retries = 1
   let response: Response;
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
     response = await fetch(url, {
       ...options,
       headers,
@@ -147,6 +147,18 @@ export const api = {
       try {
         const brothers = await apiRequest<Brother[]>('/api/family/members');
         if (Array.isArray(brothers) && brothers.length > 0) {
+          // Sync server brothers to local database for multi-device sync
+          for (const b of brothers) {
+            localDb.updateBrother(b.id, b);
+          }
+          // If the logged-in user on this mobile has an updated avatar on the server, sync it
+          const activeUser = tokenStorage.getUser();
+          if (activeUser) {
+            const serverMatch = brothers.find((b) => b.id === activeUser.id);
+            if (serverMatch && (serverMatch.avatar_url !== activeUser.avatar_url || serverMatch.full_name !== activeUser.full_name)) {
+              tokenStorage.setUser(serverMatch);
+            }
+          }
           return brothers;
         }
         return localDb.getBrothers();

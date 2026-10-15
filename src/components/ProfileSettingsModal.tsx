@@ -17,10 +17,13 @@ import {
   EyeOff,
   ExternalLink,
   Sparkles,
-  Send
+  Send,
+  Camera,
+  Loader2
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.tsx';
 import { api, getWhatsAppUrl } from '../lib/api.ts';
+import { compressAvatarImage } from '../lib/imageCompressor.ts';
 
 interface ProfileSettingsModalProps {
   isOpen: boolean;
@@ -73,7 +76,9 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   const [passwordSuccess, setPasswordSuccess] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
 
+  const [compressing, setCompressing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   // Sync state whenever modal opens or user changes
   useEffect(() => {
@@ -97,28 +102,28 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
 
   const officialInfo = OFFICIAL_PHONE_NUMBERS[user.brother_key];
 
-  // Handle image upload from file picker
-  const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle image upload with auto-compression for permanent mobile sync
+  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-      setProfileError('Please upload a valid image file (PNG, JPG, WebP).');
+      setProfileError('Please upload a valid image file (PNG, JPG, WebP, HEIC).');
       return;
     }
 
-    if (file.size > 3 * 1024 * 1024) {
-      setProfileError('Image size should be under 3MB for fast loading.');
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const result = event.target?.result as string;
-      setAvatarUrl(result);
+    try {
+      setCompressing(true);
       setProfileError(null);
-    };
-    reader.readAsDataURL(file);
+      // Auto-compress and square crop avatar to ~30-50KB for instantaneous upload & permanent multi-device sync
+      const optimizedUrl = await compressAvatarImage(file, 480, 0.88);
+      setAvatarUrl(optimizedUrl);
+    } catch (err: any) {
+      setProfileError('Failed to process image: ' + (err.message || 'Please try another photo.'));
+    } finally {
+      setCompressing(false);
+      if (e.target) e.target.value = '';
+    }
   };
 
   const handleProfileSubmit = async (e: React.FormEvent) => {
@@ -133,9 +138,9 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
         avatar_url: avatarUrl
       });
       setProfileSuccess(true);
-      setTimeout(() => setProfileSuccess(false), 2500);
+      setTimeout(() => setProfileSuccess(false), 4000);
     } catch (err: any) {
-      setProfileError(err.message || 'Failed to update profile settings.');
+      setProfileError(err.message || 'Failed to update profile picture and details.');
     } finally {
       setProfileSaving(false);
     }
@@ -252,9 +257,12 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
               )}
 
               {profileSuccess && (
-                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2 font-medium">
-                  <CheckCircle2 className="w-4 h-4 shrink-0" />
-                  <span>Profile details updated successfully!</span>
+                <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-center gap-2.5 font-medium shadow-2xs">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <div className="flex-1">
+                    <p className="font-bold text-emerald-950">Profile picture & details permanently saved!</p>
+                    <p className="text-[11px] text-emerald-800">Your new photo is stored in the database and will appear whenever you open the app on other mobiles or computers.</p>
+                  </div>
                 </div>
               )}
 
@@ -264,17 +272,22 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
                     Profile Picture Option
                   </label>
-                  <span className="text-[10px] text-slate-500">
-                    Upload from device or pick avatar
+                  <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                    Permanent Multi-Device Sync
                   </span>
                 </div>
 
                 <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
                   <div
-                    className="w-18 h-18 rounded-2xl flex items-center justify-center text-white font-bold text-xl shadow-sm overflow-hidden shrink-0 relative border-2 border-white"
+                    className="w-20 h-20 rounded-2xl flex items-center justify-center text-white font-bold text-xl shadow-sm overflow-hidden shrink-0 relative border-2 border-white ring-2 ring-slate-200"
                     style={{ backgroundColor: user.avatar_color }}
                   >
-                    {avatarUrl ? (
+                    {compressing ? (
+                      <div className="flex flex-col items-center justify-center gap-1 text-[10px] text-white bg-slate-900/70 absolute inset-0">
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        <span>Processing...</span>
+                      </div>
+                    ) : avatarUrl ? (
                       <img src={avatarUrl} alt="Preview" className="w-full h-full object-cover" />
                     ) : (
                       <span>
@@ -287,7 +300,8 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                     )}
                   </div>
 
-                  <div className="flex-1 space-y-2">
+                  <div className="flex-1 space-y-2.5">
+                    {/* Hidden inputs: one for gallery/files, one for direct mobile camera */}
                     <input
                       type="file"
                       ref={fileInputRef}
@@ -295,15 +309,38 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                       accept="image/*"
                       className="hidden"
                     />
+                    <input
+                      type="file"
+                      ref={cameraInputRef}
+                      onChange={handleImageFileChange}
+                      accept="image/*"
+                      capture="user"
+                      className="hidden"
+                    />
 
                     <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs"
+                        disabled={compressing}
+                        onClick={() => cameraInputRef.current?.click()}
+                        className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs disabled:opacity-50"
                       >
-                        <Upload className="w-3.5 h-3.5" />
-                        <span>Upload Photo from Phone/PC</span>
+                        <Camera className="w-3.5 h-3.5" />
+                        <span>Take Photo</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={compressing}
+                        onClick={() => fileInputRef.current?.click()}
+                        className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs disabled:opacity-50"
+                      >
+                        {compressing ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Upload className="w-3.5 h-3.5" />
+                        )}
+                        <span>{compressing ? 'Optimizing...' : 'Upload from Phone/PC'}</span>
                       </button>
 
                       {avatarUrl && (
@@ -313,12 +350,12 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                           className="px-3 py-1.5 rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 text-xs font-medium flex items-center gap-1.5 transition-colors"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
-                          <span>Remove Photo</span>
+                          <span>Remove</span>
                         </button>
                       )}
                     </div>
-                    <p className="text-[11px] text-slate-500">
-                      Supports JPG, PNG, WebP up to 3MB. Displayed across dashboard, tasks, plans, and navbar.
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      Photos are automatically optimized and permanently stored in your account so they immediately show on your phone, tablet, and brothers' devices.
                     </p>
                   </div>
                 </div>

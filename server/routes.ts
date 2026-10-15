@@ -101,6 +101,14 @@ apiRouter.put('/auth/profile', requireAuth, (req: AuthRequest, res: Response) =>
       WHERE id = ?
     `).run(updatedEmail, updatedName, updatedPhone, updatedAvatar, now, userId);
 
+    try {
+      db.prepare(`
+        UPDATE shared_tasks
+        SET assigned_to_avatar = ?, assigned_to_name = ?
+        WHERE assigned_to_id = ?
+      `).run(updatedAvatar, updatedName, userId);
+    } catch {}
+
     const updatedUser = db.prepare(`
       SELECT id, email, full_name, brother_key, avatar_color, avatar_url, phone_number, role
       FROM users WHERE id = ?
