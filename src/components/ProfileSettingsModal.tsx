@@ -177,7 +177,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
     }
   };
 
-  const testWaUrl = phoneNumber ? getWhatsAppUrl(phoneNumber, `Assalamu Alaikum ${user.full_name}! This is a test notification from the 4broters Family Hub. Automated WhatsApp alerts for assigned tasks are active.`) : null;
+  const testWaUrl = phoneNumber ? getWhatsAppUrl(phoneNumber, `Assalamu Alaikum ${user.full_name}! This is a test notification from the 4 Brothers Family Hub. Automated WhatsApp alerts for assigned tasks are active.`) : null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
@@ -443,7 +443,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                     <span>WhatsApp Phone Number (Automated Alerts)</span>
                   </label>
                   <span className="text-[10px] text-emerald-800 font-bold bg-white px-2 py-0.5 rounded-full border border-emerald-200 shadow-2xs">
-                    4broters WhatsApp Hook
+                    4 Brothers WhatsApp Hook
                   </span>
                 </div>
 

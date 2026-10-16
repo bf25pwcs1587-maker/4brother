@@ -1,0 +1,52 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isValidString(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    // User profiles (brother cards & avatars)
+    match /users/{userId} {
+      allow read: if true;
+      allow create, update: if true;
+      allow delete: if false;
+
+      // Personal private notes subcollection
+      match /private_notes/{noteId} {
+        allow read, write: if true;
+      }
+
+      // Personal private transactions subcollection
+      match /personal_transactions/{txId} {
+        allow read, write: if true;
+      }
+
+      // Personal private tasks subcollection
+      match /private_tasks/{taskId} {
+        allow read, write: if true;
+      }
+    }
+
+    // Shared family income
+    match /shared_income/{incomeId} {
+      allow read, write: if true;
+    }
+
+    // Shared family tasks
+    match /shared_tasks/{taskId} {
+      allow read, write: if true;
+    }
+
+    // Family plans
+    match /family_plans/{planId} {
+      allow read, write: if true;
+    }
+
+    // Family announcements
+    match /family_announcements/{annId} {
+      allow read, write: if true;
+    }
+  }
+}

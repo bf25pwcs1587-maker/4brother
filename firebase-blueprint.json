@@ -1,0 +1,196 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Profile data for one of the four brothers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "full_name": { "type": "string" },
+        "brother_key": { "type": "string" },
+        "email": { "type": "string" },
+        "avatar_color": { "type": "string" },
+        "avatar_url": { "type": "string" },
+        "phone_number": { "type": "string" },
+        "role": { "type": "string" },
+        "updated_at": { "type": "string" }
+      },
+      "required": ["id", "full_name", "brother_key", "email"]
+    },
+    "PrivateNote": {
+      "title": "PrivateNote",
+      "description": "Strictly confidential personal note for a brother",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "category": { "type": "string" },
+        "is_pinned": { "type": "number" },
+        "is_example": { "type": "number" },
+        "created_at": { "type": "string" },
+        "updated_at": { "type": "string" }
+      },
+      "required": ["id", "user_id", "title"]
+    },
+    "PersonalTransaction": {
+      "title": "PersonalTransaction",
+      "description": "Personal income or expense record for a brother",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "type": { "type": "string", "enum": ["income", "expense"] },
+        "amount": { "type": "number" },
+        "currency": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "date": { "type": "string" },
+        "is_example": { "type": "number" },
+        "created_at": { "type": "string" },
+        "updated_at": { "type": "string" }
+      },
+      "required": ["id", "user_id", "type", "amount", "category", "date"]
+    },
+    "PrivateTask": {
+      "title": "PrivateTask",
+      "description": "Private personal task for an individual brother",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "due_date": { "type": "string" },
+        "due_time": { "type": "string" },
+        "priority": { "type": "string", "enum": ["low", "medium", "high"] },
+        "status": { "type": "string", "enum": ["pending", "completed"] },
+        "category": { "type": "string" },
+        "is_example": { "type": "number" },
+        "created_at": { "type": "string" },
+        "updated_at": { "type": "string" }
+      },
+      "required": ["id", "user_id", "title"]
+    },
+    "SharedIncome": {
+      "title": "SharedIncome",
+      "description": "Collective family income record visible to all brothers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "amount": { "type": "number" },
+        "currency": { "type": "string" },
+        "source_category": { "type": "string" },
+        "date": { "type": "string" },
+        "notes": { "type": "string" },
+        "created_by_id": { "type": "string" },
+        "created_by_name": { "type": "string" },
+        "updated_by_name": { "type": "string" },
+        "is_example": { "type": "number" },
+        "created_at": { "type": "string" },
+        "updated_at": { "type": "string" }
+      },
+      "required": ["id", "title", "amount", "source_category", "date"]
+    },
+    "SharedTask": {
+      "title": "SharedTask",
+      "description": "Family task shared across all brothers with WhatsApp alert hooks",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "due_date": { "type": "string" },
+        "due_time": { "type": "string" },
+        "priority": { "type": "string", "enum": ["low", "medium", "high"] },
+        "assigned_to_name": { "type": "string" },
+        "assigned_to_id": { "type": "string" },
+        "assigned_to_phone": { "type": "string" },
+        "assigned_to_avatar": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "completed"] },
+        "created_by_id": { "type": "string" },
+        "created_by_name": { "type": "string" },
+        "updated_by_name": { "type": "string" },
+        "is_example": { "type": "number" },
+        "created_at": { "type": "string" },
+        "updated_at": { "type": "string" }
+      },
+      "required": ["id", "title", "assigned_to_name"]
+    },
+    "FamilyPlan": {
+      "title": "FamilyPlan",
+      "description": "Family gatherings, estate reviews, and events",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "location": { "type": "string" },
+        "created_by_id": { "type": "string" },
+        "created_by_name": { "type": "string" },
+        "updated_by_name": { "type": "string" },
+        "is_example": { "type": "number" },
+        "created_at": { "type": "string" },
+        "updated_at": { "type": "string" }
+      },
+      "required": ["id", "title", "date"]
+    },
+    "FamilyAnnouncement": {
+      "title": "FamilyAnnouncement",
+      "description": "Announcements and family news posted by brothers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "tag": { "type": "string" },
+        "is_pinned": { "type": "number" },
+        "created_by_id": { "type": "string" },
+        "created_by_name": { "type": "string" },
+        "updated_by_name": { "type": "string" },
+        "is_example": { "type": "number" },
+        "created_at": { "type": "string" },
+        "updated_at": { "type": "string" }
+      },
+      "required": ["id", "title", "content"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Brother profiles with avatar and contact info"
+    },
+    "/users/{userId}/private_notes/{noteId}": {
+      "schema": { "$ref": "#/entities/PrivateNote" },
+      "description": "Confidential personal notes scoped to individual brother"
+    },
+    "/users/{userId}/personal_transactions/{txId}": {
+      "schema": { "$ref": "#/entities/PersonalTransaction" },
+      "description": "Personal income and expense entries scoped to brother"
+    },
+    "/users/{userId}/private_tasks/{taskId}": {
+      "schema": { "$ref": "#/entities/PrivateTask" },
+      "description": "Personal tasks scoped to individual brother"
+    },
+    "/shared_income/{incomeId}": {
+      "schema": { "$ref": "#/entities/SharedIncome" },
+      "description": "Shared family revenue and commercial property rental logs"
+    },
+    "/shared_tasks/{taskId}": {
+      "schema": { "$ref": "#/entities/SharedTask" },
+      "description": "Collective family responsibilities with WhatsApp integration"
+    },
+    "/family_plans/{planId}": {
+      "schema": { "$ref": "#/entities/FamilyPlan" },
+      "description": "Family events, dinners, and estate reviews"
+    },
+    "/family_announcements/{annId}": {
+      "schema": { "$ref": "#/entities/FamilyAnnouncement" },
+      "description": "Shared announcements board for 4 brothers"
+    }
+  }
+}

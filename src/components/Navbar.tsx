@@ -51,7 +51,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
               <div>
                 <span className="font-extrabold text-lg text-slate-900 tracking-tight font-serif-title block leading-none">
-                  4broters
+                  4 Brothers
                 </span>
                 <span className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold block mt-0.5">
                   Family Hub

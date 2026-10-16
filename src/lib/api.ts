@@ -10,6 +10,7 @@ import {
   DashboardOverview
 } from '../types/index.ts';
 import { localDb, INITIAL_BROTHERS } from './storage.ts';
+import { cloudDb } from './firestoreService.ts';
 
 const TOKEN_KEY = '4broters_session_token';
 const USER_KEY = '4broters_user_profile';
@@ -60,6 +61,15 @@ export function getWhatsAppUrl(phoneNumber: string | null | undefined, message: 
 
 export const FALLBACK_BROTHERS: Brother[] = INITIAL_BROTHERS;
 
+function generateId(): string {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    try {
+      return crypto.randomUUID();
+    } catch {}
+  }
+  return 'id_' + Math.random().toString(36).substring(2, 11) + '_' + Date.now();
+}
+
 function getCurrentUserFallback(): Brother {
   const current = tokenStorage.getUser();
   if (current) return current;
@@ -67,214 +77,233 @@ function getCurrentUserFallback(): Brother {
   return brothers[0];
 }
 
-async function apiRequest<T>(url: string, options: RequestInit = {}, retries = 1): Promise<T> {
-  let token = tokenStorage.get();
-  if (!token) {
-    const user = tokenStorage.getUser();
-    if (user?.brother_key) {
-      token = user.brother_key;
-    }
-  }
-
-  const headers = new Headers(options.headers || {});
-  headers.set('Content-Type', 'application/json');
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
-  }
-
-  let response: Response;
+// Optional Express API forwarder (when running in Node server)
+async function tryServerRequest<T>(url: string, options: RequestInit = {}): Promise<T | null> {
   try {
+    const token = tokenStorage.get() || tokenStorage.getUser()?.brother_key;
+    const headers = new Headers(options.headers || {});
+    headers.set('Content-Type', 'application/json');
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 20000);
-    response = await fetch(url, {
-      ...options,
-      headers,
-      signal: controller.signal
-    });
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+    const res = await fetch(url, { ...options, headers, signal: controller.signal });
     clearTimeout(timeoutId);
-  } catch (netErr: any) {
-    if (retries > 0) {
-      await new Promise((r) => setTimeout(r, 200));
-      return apiRequest<T>(url, options, retries - 1);
-    }
-    throw new Error('Network error or server unreachable: ' + (netErr.message || 'Failed to fetch'));
+
+    const contentType = res.headers.get('content-type') || '';
+    if (!res.ok || contentType.includes('text/html')) return null;
+    return await res.json();
+  } catch {
+    return null;
   }
-
-  // Detect HTML response (e.g. Vercel SPA rewrites returning index.html for 404 API paths)
-  const contentType = response.headers.get('content-type') || '';
-  if (contentType.includes('text/html')) {
-    throw new Error(`API endpoint ${url} returned HTML (serverless or route not found).`);
-  }
-
-  if (response.status === 404) {
-    throw new Error(`API endpoint ${url} not found (404)`);
-  }
-
-  // Handle 401 re-auth
-  if (response.status === 401 && retries > 0 && !url.includes('/api/auth/login')) {
-    const user = tokenStorage.getUser();
-    if (user?.brother_key) {
-      try {
-        const customPass = localStorage.getItem(`4broters_custom_pass_${user.brother_key}`) || `${user.brother_key}2026`;
-        const reauthRes = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ emailOrKey: user.brother_key, password: customPass })
-        });
-        if (reauthRes.ok) {
-          const reauthData = await reauthRes.json();
-          tokenStorage.set(reauthData.token);
-          tokenStorage.setUser(reauthData.user);
-          return apiRequest<T>(url, options, retries - 1);
-        }
-      } catch {}
-    }
-  }
-
-  const data = await response.json().catch(() => null);
-
-  if (!response.ok || data === null) {
-    const message = (data && (data.error || data.message)) || `Request failed with status ${response.status}`;
-    throw new Error(message);
-  }
-
-  return data as T;
 }
 
 export const api = {
   auth: {
     getFamilyMembers: async (): Promise<Brother[]> => {
       try {
-        const brothers = await apiRequest<Brother[]>('/api/family/members');
-        if (Array.isArray(brothers) && brothers.length > 0) {
-          // Sync server brothers to local database for multi-device sync
-          for (const b of brothers) {
+        const cloudMembers = await cloudDb.getBrothers();
+        if (Array.isArray(cloudMembers) && cloudMembers.length > 0) {
+          // Sync with local cache
+          for (const b of cloudMembers) {
             localDb.updateBrother(b.id, b);
           }
-          // If the logged-in user on this mobile has an updated avatar on the server, sync it
-          const activeUser = tokenStorage.getUser();
-          if (activeUser) {
-            const serverMatch = brothers.find((b) => b.id === activeUser.id);
-            if (serverMatch && (serverMatch.avatar_url !== activeUser.avatar_url || serverMatch.full_name !== activeUser.full_name)) {
-              tokenStorage.setUser(serverMatch);
+          const active = tokenStorage.getUser();
+          if (active) {
+            const match = cloudMembers.find((m) => m.id === active.id);
+            if (match && (match.avatar_url !== active.avatar_url || match.full_name !== active.full_name)) {
+              tokenStorage.setUser(match);
             }
           }
-          return brothers;
+          return cloudMembers;
         }
-        return localDb.getBrothers();
-      } catch {
-        return localDb.getBrothers();
+      } catch (err) {
+        console.warn('Cloud getFamilyMembers error:', err);
       }
+
+      // Check SQLite server or local
+      const serverRes = await tryServerRequest<Brother[]>('/api/family/members');
+      if (serverRes && Array.isArray(serverRes) && serverRes.length > 0) {
+        return serverRes;
+      }
+      return localDb.getBrothers();
     },
 
-    login: async (emailOrKey: string, password: string): Promise<{ token: string; user: Brother }> => {
-      try {
-        const result = await apiRequest<{ token: string; user: Brother }>('/api/auth/login', {
-          method: 'POST',
-          body: JSON.stringify({ emailOrKey, password })
-        });
-        if (result && result.token && result.user) {
-          tokenStorage.set(result.token);
-          tokenStorage.setUser(result.user);
-          return result;
-        }
-      } catch (err: any) {
-        // Fall back to local database authentication
-        const brothers = localDb.getBrothers();
-        const trimmed = emailOrKey.trim().toLowerCase();
-        const brother = brothers.find(
-          b =>
-            b.brother_key.toLowerCase() === trimmed ||
-            b.email.toLowerCase() === trimmed ||
-            b.full_name.toLowerCase().includes(trimmed)
-        );
+    login: async (emailOrKey: string, passcode: string): Promise<{ token: string; user: Brother }> => {
+      const trimmed = emailOrKey.trim().toLowerCase();
+      // First try to fetch real cloud members
+      const brothers = await api.auth.getFamilyMembers();
+      const brother = brothers.find(
+        (b) =>
+          b.brother_key.toLowerCase() === trimmed ||
+          b.email.toLowerCase() === trimmed ||
+          b.full_name.toLowerCase().includes(trimmed)
+      );
 
-        if (brother && localDb.verifyPassword(brother.brother_key, password)) {
-          const fallback = {
-            token: `local_session_${brother.brother_key}_${Date.now()}`,
-            user: brother
-          };
-          tokenStorage.set(fallback.token);
-          tokenStorage.setUser(fallback.user);
-          return fallback;
-        }
-
-        // If credentials invalid according to localDb
-        if (brother) {
-          throw new Error('Incorrect passcode for ' + brother.full_name + '. Default is ' + brother.brother_key + '2026.');
-        }
-        throw new Error('Brother or email not recognized.');
+      if (!brother) {
+        throw new Error('Account not found. Please select one of the four brother accounts.');
       }
 
-      throw new Error('Login failed.');
+      // Try server login first if backend is running
+      const serverLogin = await tryServerRequest<{ token: string; user: Brother }>('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ emailOrKey, password: passcode })
+      });
+      if (serverLogin && serverLogin.token && serverLogin.user) {
+        // Merge with cloud avatar
+        const cloudUser = { ...serverLogin.user, avatar_url: brother.avatar_url || serverLogin.user.avatar_url };
+        tokenStorage.set(serverLogin.token);
+        tokenStorage.setUser(cloudUser);
+        return { token: serverLogin.token, user: cloudUser };
+      }
+
+      // Verify passcode via local storage
+      if (localDb.verifyPassword(brother.brother_key, passcode)) {
+        const fallback = {
+          token: `session_${brother.brother_key}_${Date.now()}`,
+          user: brother
+        };
+        tokenStorage.set(fallback.token);
+        tokenStorage.setUser(fallback.user);
+        return fallback;
+      }
+
+      throw new Error(`Incorrect passcode for ${brother.full_name}. (Default: ${brother.brother_key}2026)`);
     },
 
     getMe: async (): Promise<{ user: Brother }> => {
+      const stored = tokenStorage.getUser() || getCurrentUserFallback();
       try {
-        const res = await apiRequest<{ user: Brother }>('/api/auth/me');
-        if (res && res.user) {
-          tokenStorage.setUser(res.user);
-          return res;
+        const members = await cloudDb.getBrothers();
+        const fresh = members.find((m) => m.id === stored.id);
+        if (fresh) {
+          tokenStorage.setUser(fresh);
+          return { user: fresh };
         }
       } catch {}
-      const stored = tokenStorage.getUser() || getCurrentUserFallback();
       return { user: stored };
     },
 
     logout: async () => {
       try {
-        await apiRequest('/api/auth/logout', { method: 'POST' });
+        await tryServerRequest('/api/auth/logout', { method: 'POST' });
       } catch {}
       tokenStorage.remove();
     },
 
     changePassword: async (currentPassword: string, newPassword: string) => {
       const current = getCurrentUserFallback();
-      try {
-        const res = await apiRequest<{ success: boolean; message: string }>('/api/auth/change-password', {
-          method: 'POST',
-          body: JSON.stringify({ currentPassword, newPassword })
-        });
-        localDb.setPassword(current.brother_key, newPassword);
-        return res;
-      } catch {
-        if (!localDb.verifyPassword(current.brother_key, currentPassword)) {
-          throw new Error('Current passcode is incorrect.');
-        }
-        localDb.setPassword(current.brother_key, newPassword);
-        return { success: true, message: 'Passcode updated successfully.' };
+      if (!localDb.verifyPassword(current.brother_key, currentPassword)) {
+        throw new Error('Current passcode is incorrect.');
       }
+      localDb.setPassword(current.brother_key, newPassword);
+      await tryServerRequest('/api/auth/change-password', {
+        method: 'POST',
+        body: JSON.stringify({ currentPassword, newPassword })
+      });
+      return { success: true, message: 'Passcode updated successfully.' };
     },
 
     updateProfile: async (data: { email?: string; avatar_url?: string | null; phone_number?: string; full_name?: string }) => {
       const current = getCurrentUserFallback();
-      try {
-        const res = await apiRequest<{ success: boolean; message: string; user: Brother }>('/api/auth/profile', {
-          method: 'PUT',
-          body: JSON.stringify(data)
-        });
-        if (res && res.user) {
-          tokenStorage.setUser(res.user);
-          localDb.updateBrother(res.user.id, res.user);
-          return res;
-        }
-      } catch {}
-      const updated = localDb.updateBrother(current.id, data);
-      tokenStorage.setUser(updated);
-      return { success: true, message: 'Profile saved successfully.', user: updated };
+
+      // 1. Save directly to Cloud Firestore (Live across all mobiles & computers)
+      const cloudUpdated = await cloudDb.updateBrotherProfile(current.id, data);
+
+      // 2. Also sync to localDb and active session
+      localDb.updateBrother(current.id, cloudUpdated);
+      tokenStorage.setUser(cloudUpdated);
+
+      // 3. Inform backend server if available
+      tryServerRequest('/api/auth/profile', {
+        method: 'PUT',
+        body: JSON.stringify(data)
+      }).catch(() => {});
+
+      return {
+        success: true,
+        message: 'Profile & picture permanently saved! Synchronized live across all devices.',
+        user: cloudUpdated
+      };
     }
   },
 
   dashboard: {
     getOverview: async (): Promise<DashboardOverview> => {
-      const currentUser = getCurrentUserFallback();
+      const currentUser = tokenStorage.getUser() || getCurrentUserFallback();
       try {
-        const overview = await apiRequest<DashboardOverview>('/api/dashboard/overview');
-        if (overview && overview.brother && overview.personalFinance) {
-          return overview;
+        // Fetch real cloud counts
+        const [cloudTxs, cloudTasks, cloudNotes, cloudSharedTasks, cloudPlans, cloudAnns, cloudSharedInc] =
+          await Promise.allSettled([
+            cloudDb.getPersonalTransactions(currentUser.id),
+            cloudDb.getPrivateTasks(currentUser.id),
+            cloudDb.getPrivateNotes(currentUser.id),
+            cloudDb.getSharedTasks(),
+            cloudDb.getFamilyPlans(),
+            cloudDb.getFamilyAnnouncements(),
+            cloudDb.getSharedIncome()
+          ]);
+
+        const txs = cloudTxs.status === 'fulfilled' && cloudTxs.value.length > 0
+          ? cloudTxs.value
+          : localDb.getTransactions(currentUser.id);
+
+        let totalIncome = 0;
+        let totalExpense = 0;
+        for (const t of txs) {
+          const amt = Number(t.amount) || 0;
+          if (t.type === 'income') totalIncome += amt;
+          else totalExpense += amt;
         }
-      } catch {}
-      return localDb.getDashboardOverview(currentUser);
+
+        const myTasks = cloudTasks.status === 'fulfilled' && cloudTasks.value.length > 0
+          ? cloudTasks.value.filter((t) => t.status === 'pending').slice(0, 4)
+          : localDb.getTasks(currentUser.id).filter((t) => t.status === 'pending').slice(0, 4);
+
+        const notesCount = cloudNotes.status === 'fulfilled' && cloudNotes.value.length > 0
+          ? cloudNotes.value.length
+          : localDb.getNotes(currentUser.id).length;
+
+        const sharedIncList = cloudSharedInc.status === 'fulfilled' && cloudSharedInc.value.length > 0
+          ? cloudSharedInc.value
+          : localDb.getSharedIncome();
+        const totalSharedIncome = sharedIncList.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+
+        const sharedTasks = cloudSharedTasks.status === 'fulfilled' && cloudSharedTasks.value.length > 0
+          ? cloudSharedTasks.value.filter((t) => t.status === 'pending').slice(0, 4)
+          : localDb.getSharedTasks().filter((t) => t.status === 'pending').slice(0, 4);
+
+        const plans = cloudPlans.status === 'fulfilled' && cloudPlans.value.length > 0
+          ? cloudPlans.value.slice(0, 3)
+          : localDb.getPlans().slice(0, 3);
+
+        const anns = cloudAnns.status === 'fulfilled' && cloudAnns.value.length > 0
+          ? cloudAnns.value.slice(0, 3)
+          : localDb.getAnnouncements().slice(0, 3);
+
+        return {
+          brother: currentUser,
+          personalFinance: {
+            totalIncome,
+            totalExpense,
+            netBalance: totalIncome - totalExpense,
+            currency: 'PKR',
+            recentTransactions: txs.slice(0, 5)
+          },
+          upcomingPrivateTasks: myTasks,
+          privateNotesCount: notesCount,
+          sharedFinance: {
+            totalSharedIncome,
+            currency: 'PKR'
+          },
+          upcomingSharedTasks: sharedTasks,
+          upcomingPlans: plans,
+          recentAnnouncements: anns
+        };
+      } catch (err) {
+        console.warn('[Dashboard] fallback to localDb overview:', err);
+        return localDb.getDashboardOverview(currentUser);
+      }
     }
   },
 
@@ -282,50 +311,48 @@ export const api = {
     getAll: async (): Promise<PrivateNote[]> => {
       const currentUser = getCurrentUserFallback();
       try {
-        const res = await apiRequest<PrivateNote[]>('/api/private/notes');
-        if (Array.isArray(res)) return res;
+        const cloudNotes = await cloudDb.getPrivateNotes(currentUser.id);
+        if (cloudNotes.length > 0) return cloudNotes;
       } catch {}
       return localDb.getNotes(currentUser.id);
     },
 
     create: async (data: Partial<PrivateNote>): Promise<PrivateNote> => {
       const currentUser = getCurrentUserFallback();
-      try {
-        const res = await apiRequest<PrivateNote>('/api/private/notes', {
-          method: 'POST',
-          body: JSON.stringify(data)
-        });
-        if (res && res.id) {
-          localDb.createNote(currentUser.id, res);
-          return res;
-        }
-      } catch {}
-      return localDb.createNote(currentUser.id, data);
+      const now = new Date().toISOString();
+      const newNote: PrivateNote = {
+        id: generateId(),
+        user_id: currentUser.id,
+        title: data.title || 'Untitled Note',
+        content: data.content || '',
+        category: data.category || 'General',
+        is_pinned: data.is_pinned ? 1 : 0,
+        is_example: 0,
+        created_at: now,
+        updated_at: now
+      };
+
+      // 1. Cloud Firestore
+      await cloudDb.savePrivateNote(currentUser.id, newNote).catch(() => {});
+      // 2. Local fallback & server sync
+      localDb.createNote(currentUser.id, newNote);
+      tryServerRequest('/api/private/notes', { method: 'POST', body: JSON.stringify(newNote) }).catch(() => {});
+      return newNote;
     },
 
     update: async (id: string, data: Partial<PrivateNote>): Promise<PrivateNote> => {
       const currentUser = getCurrentUserFallback();
-      try {
-        const res = await apiRequest<PrivateNote>(`/api/private/notes/${id}`, {
-          method: 'PUT',
-          body: JSON.stringify(data)
-        });
-        if (res && res.id) {
-          localDb.updateNote(currentUser.id, id, res);
-          return res;
-        }
-      } catch {}
-      return localDb.updateNote(currentUser.id, id, data);
+      const updated = localDb.updateNote(currentUser.id, id, data);
+      await cloudDb.savePrivateNote(currentUser.id, updated).catch(() => {});
+      tryServerRequest(`/api/private/notes/${id}`, { method: 'PUT', body: JSON.stringify(data) }).catch(() => {});
+      return updated;
     },
 
     delete: async (id: string): Promise<{ success: boolean }> => {
       const currentUser = getCurrentUserFallback();
-      try {
-        await apiRequest<{ success: boolean }>(`/api/private/notes/${id}`, {
-          method: 'DELETE'
-        });
-      } catch {}
       localDb.deleteNote(currentUser.id, id);
+      await cloudDb.deletePrivateNote(currentUser.id, id).catch(() => {});
+      tryServerRequest(`/api/private/notes/${id}`, { method: 'DELETE' }).catch(() => {});
       return { success: true };
     }
   },
@@ -334,65 +361,75 @@ export const api = {
     getAll: async (): Promise<PersonalTransaction[]> => {
       const currentUser = getCurrentUserFallback();
       try {
-        const res = await apiRequest<PersonalTransaction[]>('/api/private/money');
-        if (Array.isArray(res)) return res;
+        const cloudTxs = await cloudDb.getPersonalTransactions(currentUser.id);
+        if (cloudTxs.length > 0) return cloudTxs;
       } catch {}
       return localDb.getTransactions(currentUser.id);
     },
 
     getSummary: async () => {
       const currentUser = getCurrentUserFallback();
-      try {
-        const res = await apiRequest<{
-          totalIncome: number;
-          totalExpense: number;
-          netBalance: number;
-          currency: string;
-          categoryBreakdown: any[];
-        }>('/api/private/money/summary');
-        if (res && typeof res.totalIncome === 'number') return res;
-      } catch {}
-      return localDb.getMoneySummary(currentUser.id);
+      const txs = await api.privateMoney.getAll();
+      let totalIncome = 0;
+      let totalExpense = 0;
+      const catMap: Record<string, { category: string; type: string; total: number; count: number }> = {};
+
+      for (const t of txs) {
+        const amt = Number(t.amount) || 0;
+        if (t.type === 'income') totalIncome += amt;
+        else totalExpense += amt;
+
+        const key = `${t.type}_${t.category}`;
+        if (!catMap[key]) catMap[key] = { category: t.category, type: t.type, total: 0, count: 0 };
+        catMap[key].total += amt;
+        catMap[key].count += 1;
+      }
+
+      return {
+        totalIncome,
+        totalExpense,
+        netBalance: totalIncome - totalExpense,
+        currency: 'PKR',
+        categoryBreakdown: Object.values(catMap)
+      };
     },
 
     create: async (data: Partial<PersonalTransaction>): Promise<PersonalTransaction> => {
       const currentUser = getCurrentUserFallback();
-      try {
-        const res = await apiRequest<PersonalTransaction>('/api/private/money', {
-          method: 'POST',
-          body: JSON.stringify(data)
-        });
-        if (res && res.id) {
-          localDb.createTransaction(currentUser.id, res);
-          return res;
-        }
-      } catch {}
-      return localDb.createTransaction(currentUser.id, data);
+      const now = new Date().toISOString();
+      const newTx: PersonalTransaction = {
+        id: generateId(),
+        user_id: currentUser.id,
+        type: data.type === 'expense' ? 'expense' : 'income',
+        amount: Math.abs(Number(data.amount) || 0),
+        currency: data.currency || 'PKR',
+        description: data.description || 'Transaction',
+        category: data.category || 'General',
+        date: data.date || now.split('T')[0],
+        is_example: 0,
+        created_at: now,
+        updated_at: now
+      };
+
+      await cloudDb.savePersonalTransaction(currentUser.id, newTx).catch(() => {});
+      localDb.createTransaction(currentUser.id, newTx);
+      tryServerRequest('/api/private/money', { method: 'POST', body: JSON.stringify(newTx) }).catch(() => {});
+      return newTx;
     },
 
     update: async (id: string, data: Partial<PersonalTransaction>): Promise<PersonalTransaction> => {
       const currentUser = getCurrentUserFallback();
-      try {
-        const res = await apiRequest<PersonalTransaction>(`/api/private/money/${id}`, {
-          method: 'PUT',
-          body: JSON.stringify(data)
-        });
-        if (res && res.id) {
-          localDb.updateTransaction(currentUser.id, id, res);
-          return res;
-        }
-      } catch {}
-      return localDb.updateTransaction(currentUser.id, id, data);
+      const updated = localDb.updateTransaction(currentUser.id, id, data);
+      await cloudDb.savePersonalTransaction(currentUser.id, updated).catch(() => {});
+      tryServerRequest(`/api/private/money/${id}`, { method: 'PUT', body: JSON.stringify(data) }).catch(() => {});
+      return updated;
     },
 
     delete: async (id: string): Promise<{ success: boolean }> => {
       const currentUser = getCurrentUserFallback();
-      try {
-        await apiRequest<{ success: boolean }>(`/api/private/money/${id}`, {
-          method: 'DELETE'
-        });
-      } catch {}
       localDb.deleteTransaction(currentUser.id, id);
+      await cloudDb.deletePersonalTransaction(currentUser.id, id).catch(() => {});
+      tryServerRequest(`/api/private/money/${id}`, { method: 'DELETE' }).catch(() => {});
       return { success: true };
     }
   },
@@ -401,65 +438,53 @@ export const api = {
     getAll: async (): Promise<PrivateTask[]> => {
       const currentUser = getCurrentUserFallback();
       try {
-        const res = await apiRequest<PrivateTask[]>('/api/private/tasks');
-        if (Array.isArray(res)) return res;
+        const cloudTasks = await cloudDb.getPrivateTasks(currentUser.id);
+        if (cloudTasks.length > 0) return cloudTasks;
       } catch {}
       return localDb.getTasks(currentUser.id);
     },
 
     create: async (data: Partial<PrivateTask>): Promise<PrivateTask> => {
       const currentUser = getCurrentUserFallback();
-      try {
-        const res = await apiRequest<PrivateTask>('/api/private/tasks', {
-          method: 'POST',
-          body: JSON.stringify(data)
-        });
-        if (res && res.id) {
-          localDb.createTask(currentUser.id, res);
-          return res;
-        }
-      } catch {}
-      return localDb.createTask(currentUser.id, data);
+      const now = new Date().toISOString();
+      const newTask: PrivateTask = {
+        id: generateId(),
+        user_id: currentUser.id,
+        title: data.title || 'Untitled Task',
+        description: data.description || '',
+        due_date: data.due_date || null,
+        due_time: data.due_time || '12:00',
+        priority: data.priority || 'medium',
+        status: data.status || 'pending',
+        category: data.category || 'Personal',
+        is_example: 0,
+        created_at: now,
+        updated_at: now
+      };
+
+      await cloudDb.savePrivateTask(currentUser.id, newTask).catch(() => {});
+      localDb.createTask(currentUser.id, newTask);
+      tryServerRequest('/api/private/tasks', { method: 'POST', body: JSON.stringify(newTask) }).catch(() => {});
+      return newTask;
     },
 
     update: async (id: string, data: Partial<PrivateTask>): Promise<PrivateTask> => {
       const currentUser = getCurrentUserFallback();
-      try {
-        const res = await apiRequest<PrivateTask>(`/api/private/tasks/${id}`, {
-          method: 'PUT',
-          body: JSON.stringify(data)
-        });
-        if (res && res.id) {
-          localDb.updateTask(currentUser.id, id, res);
-          return res;
-        }
-      } catch {}
-      return localDb.updateTask(currentUser.id, id, data);
+      const updated = localDb.updateTask(currentUser.id, id, data);
+      await cloudDb.savePrivateTask(currentUser.id, updated).catch(() => {});
+      tryServerRequest(`/api/private/tasks/${id}`, { method: 'PUT', body: JSON.stringify(data) }).catch(() => {});
+      return updated;
     },
 
     toggleStatus: async (id: string, status: 'pending' | 'completed'): Promise<PrivateTask> => {
-      const currentUser = getCurrentUserFallback();
-      try {
-        const res = await apiRequest<PrivateTask>(`/api/private/tasks/${id}/status`, {
-          method: 'PATCH',
-          body: JSON.stringify({ status })
-        });
-        if (res && res.id) {
-          localDb.toggleTaskStatus(currentUser.id, id, status);
-          return res;
-        }
-      } catch {}
-      return localDb.toggleTaskStatus(currentUser.id, id, status);
+      return api.privateTasks.update(id, { status });
     },
 
     delete: async (id: string): Promise<{ success: boolean }> => {
       const currentUser = getCurrentUserFallback();
-      try {
-        await apiRequest<{ success: boolean }>(`/api/private/tasks/${id}`, {
-          method: 'DELETE'
-        });
-      } catch {}
       localDb.deleteTask(currentUser.id, id);
+      await cloudDb.deletePrivateTask(currentUser.id, id).catch(() => {});
+      tryServerRequest(`/api/private/tasks/${id}`, { method: 'DELETE' }).catch(() => {});
       return { success: true };
     }
   },
@@ -467,62 +492,69 @@ export const api = {
   sharedIncome: {
     getAll: async (): Promise<SharedIncome[]> => {
       try {
-        const res = await apiRequest<SharedIncome[]>('/api/shared/income');
-        if (Array.isArray(res)) return res;
+        const cloudInc = await cloudDb.getSharedIncome();
+        if (cloudInc.length > 0) return cloudInc;
       } catch {}
       return localDb.getSharedIncome();
     },
 
     getSummary: async () => {
-      try {
-        const res = await apiRequest<{
-          total: number;
-          count: number;
-          currency: string;
-          categories: any[];
-        }>('/api/shared/income/summary');
-        if (res && typeof res.total === 'number') return res;
-      } catch {}
-      return localDb.getSharedIncomeSummary();
+      const list = await api.sharedIncome.getAll();
+      let total = 0;
+      const catMap: Record<string, { category: string; total: number; count: number }> = {};
+      for (const item of list) {
+        const amt = Number(item.amount) || 0;
+        total += amt;
+        const cat = item.source_category || 'Other';
+        if (!catMap[cat]) catMap[cat] = { category: cat, total: 0, count: 0 };
+        catMap[cat].total += amt;
+        catMap[cat].count += 1;
+      }
+      return {
+        total,
+        count: list.length,
+        currency: 'PKR',
+        categories: Object.values(catMap)
+      };
     },
 
     create: async (data: Partial<SharedIncome>): Promise<SharedIncome> => {
       const currentUser = getCurrentUserFallback();
-      try {
-        const res = await apiRequest<SharedIncome>('/api/shared/income', {
-          method: 'POST',
-          body: JSON.stringify(data)
-        });
-        if (res && res.id) {
-          localDb.createSharedIncome(currentUser, res);
-          return res;
-        }
-      } catch {}
-      return localDb.createSharedIncome(currentUser, data);
+      const now = new Date().toISOString();
+      const newInc: SharedIncome = {
+        id: generateId(),
+        title: data.title || 'Shared Income',
+        amount: Math.abs(Number(data.amount) || 0),
+        currency: data.currency || 'PKR',
+        source_category: data.source_category || 'General',
+        date: data.date || now.split('T')[0],
+        notes: data.notes || '',
+        created_by_id: currentUser.id,
+        created_by_name: currentUser.full_name,
+        updated_by_name: currentUser.full_name,
+        is_example: 0,
+        created_at: now,
+        updated_at: now
+      };
+
+      await cloudDb.saveSharedIncome(newInc).catch(() => {});
+      localDb.createSharedIncome(currentUser, newInc);
+      tryServerRequest('/api/shared/income', { method: 'POST', body: JSON.stringify(newInc) }).catch(() => {});
+      return newInc;
     },
 
     update: async (id: string, data: Partial<SharedIncome>): Promise<SharedIncome> => {
       const currentUser = getCurrentUserFallback();
-      try {
-        const res = await apiRequest<SharedIncome>(`/api/shared/income/${id}`, {
-          method: 'PUT',
-          body: JSON.stringify(data)
-        });
-        if (res && res.id) {
-          localDb.updateSharedIncome(currentUser, id, res);
-          return res;
-        }
-      } catch {}
-      return localDb.updateSharedIncome(currentUser, id, data);
+      const updated = localDb.updateSharedIncome(currentUser, id, data);
+      await cloudDb.saveSharedIncome(updated).catch(() => {});
+      tryServerRequest(`/api/shared/income/${id}`, { method: 'PUT', body: JSON.stringify(data) }).catch(() => {});
+      return updated;
     },
 
     delete: async (id: string): Promise<{ success: boolean }> => {
-      try {
-        await apiRequest<{ success: boolean }>(`/api/shared/income/${id}`, {
-          method: 'DELETE'
-        });
-      } catch {}
       localDb.deleteSharedIncome(id);
+      await cloudDb.deleteSharedIncome(id).catch(() => {});
+      tryServerRequest(`/api/shared/income/${id}`, { method: 'DELETE' }).catch(() => {});
       return { success: true };
     }
   },
@@ -530,64 +562,58 @@ export const api = {
   sharedTasks: {
     getAll: async (): Promise<SharedTask[]> => {
       try {
-        const res = await apiRequest<SharedTask[]>('/api/shared/tasks');
-        if (Array.isArray(res)) return res;
+        const cloudTasks = await cloudDb.getSharedTasks();
+        if (cloudTasks.length > 0) return cloudTasks;
       } catch {}
       return localDb.getSharedTasks();
     },
 
     create: async (data: Partial<SharedTask>): Promise<SharedTask> => {
       const currentUser = getCurrentUserFallback();
-      try {
-        const res = await apiRequest<SharedTask>('/api/shared/tasks', {
-          method: 'POST',
-          body: JSON.stringify(data)
-        });
-        if (res && res.id) {
-          localDb.createSharedTask(currentUser, res);
-          return res;
-        }
-      } catch {}
-      return localDb.createSharedTask(currentUser, data);
+      const now = new Date().toISOString();
+      const newTask: SharedTask = {
+        id: generateId(),
+        title: data.title || 'Shared Task',
+        description: data.description || '',
+        due_date: data.due_date || null,
+        due_time: data.due_time || '12:00',
+        priority: data.priority || 'medium',
+        assigned_to_name: data.assigned_to_name || 'All Brothers',
+        assigned_to_id: data.assigned_to_id || null,
+        assigned_to_phone: data.assigned_to_phone || null,
+        assigned_to_avatar: data.assigned_to_avatar || null,
+        status: data.status || 'pending',
+        created_by_id: currentUser.id,
+        created_by_name: currentUser.full_name,
+        updated_by_name: currentUser.full_name,
+        is_example: 0,
+        created_at: now,
+        updated_at: now
+      };
+
+      await cloudDb.saveSharedTask(newTask).catch(() => {});
+      localDb.createSharedTask(currentUser, newTask);
+      tryServerRequest('/api/shared/tasks', { method: 'POST', body: JSON.stringify(newTask) }).catch(() => {});
+      return newTask;
     },
 
     update: async (id: string, data: Partial<SharedTask>): Promise<SharedTask> => {
       const currentUser = getCurrentUserFallback();
-      try {
-        const res = await apiRequest<SharedTask>(`/api/shared/tasks/${id}`, {
-          method: 'PUT',
-          body: JSON.stringify(data)
-        });
-        if (res && res.id) {
-          localDb.updateSharedTask(currentUser, id, res);
-          return res;
-        }
-      } catch {}
-      return localDb.updateSharedTask(currentUser, id, data);
+      const updated = localDb.updateSharedTask(currentUser, id, data);
+      await cloudDb.saveSharedTask(updated).catch(() => {});
+      tryServerRequest(`/api/shared/tasks/${id}`, { method: 'PUT', body: JSON.stringify(data) }).catch(() => {});
+      return updated;
     },
 
     toggleStatus: async (id: string, status: 'pending' | 'completed'): Promise<SharedTask> => {
       const currentUser = getCurrentUserFallback();
-      try {
-        const res = await apiRequest<SharedTask>(`/api/shared/tasks/${id}/status`, {
-          method: 'PATCH',
-          body: JSON.stringify({ status })
-        });
-        if (res && res.id) {
-          localDb.toggleSharedTask(currentUser, id, status);
-          return res;
-        }
-      } catch {}
-      return localDb.toggleSharedTask(currentUser, id, status);
+      return api.sharedTasks.update(id, { status });
     },
 
     delete: async (id: string): Promise<{ success: boolean }> => {
-      try {
-        await apiRequest<{ success: boolean }>(`/api/shared/tasks/${id}`, {
-          method: 'DELETE'
-        });
-      } catch {}
       localDb.deleteSharedTask(id);
+      await cloudDb.deleteSharedTask(id).catch(() => {});
+      tryServerRequest(`/api/shared/tasks/${id}`, { method: 'DELETE' }).catch(() => {});
       return { success: true };
     }
   },
@@ -595,49 +621,48 @@ export const api = {
   familyPlans: {
     getAll: async (): Promise<FamilyPlan[]> => {
       try {
-        const res = await apiRequest<FamilyPlan[]>('/api/shared/plans');
-        if (Array.isArray(res)) return res;
+        const plans = await cloudDb.getFamilyPlans();
+        if (plans.length > 0) return plans;
       } catch {}
       return localDb.getPlans();
     },
 
     create: async (data: Partial<FamilyPlan>): Promise<FamilyPlan> => {
       const currentUser = getCurrentUserFallback();
-      try {
-        const res = await apiRequest<FamilyPlan>('/api/shared/plans', {
-          method: 'POST',
-          body: JSON.stringify(data)
-        });
-        if (res && res.id) {
-          localDb.createPlan(currentUser, res);
-          return res;
-        }
-      } catch {}
-      return localDb.createPlan(currentUser, data);
+      const now = new Date().toISOString();
+      const newPlan: FamilyPlan = {
+        id: generateId(),
+        title: data.title || 'Family Plan',
+        description: data.description || '',
+        date: data.date || now.split('T')[0],
+        time: data.time || '18:00',
+        location: data.location || 'Peshawar',
+        created_by_id: currentUser.id,
+        created_by_name: currentUser.full_name,
+        updated_by_name: currentUser.full_name,
+        is_example: 0,
+        created_at: now,
+        updated_at: now
+      };
+
+      await cloudDb.saveFamilyPlan(newPlan).catch(() => {});
+      localDb.createPlan(currentUser, newPlan);
+      tryServerRequest('/api/shared/plans', { method: 'POST', body: JSON.stringify(newPlan) }).catch(() => {});
+      return newPlan;
     },
 
     update: async (id: string, data: Partial<FamilyPlan>): Promise<FamilyPlan> => {
       const currentUser = getCurrentUserFallback();
-      try {
-        const res = await apiRequest<FamilyPlan>(`/api/shared/plans/${id}`, {
-          method: 'PUT',
-          body: JSON.stringify(data)
-        });
-        if (res && res.id) {
-          localDb.updatePlan(currentUser, id, res);
-          return res;
-        }
-      } catch {}
-      return localDb.updatePlan(currentUser, id, data);
+      const updated = localDb.updatePlan(currentUser, id, data);
+      await cloudDb.saveFamilyPlan(updated).catch(() => {});
+      tryServerRequest(`/api/shared/plans/${id}`, { method: 'PUT', body: JSON.stringify(data) }).catch(() => {});
+      return updated;
     },
 
     delete: async (id: string): Promise<{ success: boolean }> => {
-      try {
-        await apiRequest<{ success: boolean }>(`/api/shared/plans/${id}`, {
-          method: 'DELETE'
-        });
-      } catch {}
       localDb.deletePlan(id);
+      await cloudDb.deleteFamilyPlan(id).catch(() => {});
+      tryServerRequest(`/api/shared/plans/${id}`, { method: 'DELETE' }).catch(() => {});
       return { success: true };
     }
   },
@@ -645,49 +670,47 @@ export const api = {
   announcements: {
     getAll: async (): Promise<FamilyAnnouncement[]> => {
       try {
-        const res = await apiRequest<FamilyAnnouncement[]>('/api/shared/announcements');
-        if (Array.isArray(res)) return res;
+        const anns = await cloudDb.getFamilyAnnouncements();
+        if (anns.length > 0) return anns;
       } catch {}
       return localDb.getAnnouncements();
     },
 
     create: async (data: Partial<FamilyAnnouncement>): Promise<FamilyAnnouncement> => {
       const currentUser = getCurrentUserFallback();
-      try {
-        const res = await apiRequest<FamilyAnnouncement>('/api/shared/announcements', {
-          method: 'POST',
-          body: JSON.stringify(data)
-        });
-        if (res && res.id) {
-          localDb.createAnnouncement(currentUser, res);
-          return res;
-        }
-      } catch {}
-      return localDb.createAnnouncement(currentUser, data);
+      const now = new Date().toISOString();
+      const newAnn: FamilyAnnouncement = {
+        id: generateId(),
+        title: data.title || 'Announcement',
+        content: data.content || '',
+        tag: data.tag || 'Family Update',
+        is_pinned: data.is_pinned ? 1 : 0,
+        created_by_id: currentUser.id,
+        created_by_name: currentUser.full_name,
+        updated_by_name: currentUser.full_name,
+        is_example: 0,
+        created_at: now,
+        updated_at: now
+      };
+
+      await cloudDb.saveFamilyAnnouncement(newAnn).catch(() => {});
+      localDb.createAnnouncement(currentUser, newAnn);
+      tryServerRequest('/api/shared/announcements', { method: 'POST', body: JSON.stringify(newAnn) }).catch(() => {});
+      return newAnn;
     },
 
     update: async (id: string, data: Partial<FamilyAnnouncement>): Promise<FamilyAnnouncement> => {
       const currentUser = getCurrentUserFallback();
-      try {
-        const res = await apiRequest<FamilyAnnouncement>(`/api/shared/announcements/${id}`, {
-          method: 'PUT',
-          body: JSON.stringify(data)
-        });
-        if (res && res.id) {
-          localDb.updateAnnouncement(currentUser, id, res);
-          return res;
-        }
-      } catch {}
-      return localDb.updateAnnouncement(currentUser, id, data);
+      const updated = localDb.updateAnnouncement(currentUser, id, data);
+      await cloudDb.saveFamilyAnnouncement(updated).catch(() => {});
+      tryServerRequest(`/api/shared/announcements/${id}`, { method: 'PUT', body: JSON.stringify(data) }).catch(() => {});
+      return updated;
     },
 
     delete: async (id: string): Promise<{ success: boolean }> => {
-      try {
-        await apiRequest<{ success: boolean }>(`/api/shared/announcements/${id}`, {
-          method: 'DELETE'
-        });
-      } catch {}
       localDb.deleteAnnouncement(id);
+      await cloudDb.deleteFamilyAnnouncement(id).catch(() => {});
+      tryServerRequest(`/api/shared/announcements/${id}`, { method: 'DELETE' }).catch(() => {});
       return { success: true };
     }
   },
@@ -695,24 +718,14 @@ export const api = {
   admin: {
     clearExamples: async () => {
       localDb.clearExamples();
-      try {
-        return await apiRequest<{ success: boolean; message: string }>('/api/admin/clear-examples', {
-          method: 'POST'
-        });
-      } catch {
-        return { success: true, message: 'Sample example records cleared from storage.' };
-      }
+      tryServerRequest('/api/admin/clear-examples', { method: 'POST' }).catch(() => {});
+      return { success: true, message: 'Sample example records cleared from storage.' };
     },
 
     restoreExamples: async () => {
       localDb.restoreExamples();
-      try {
-        return await apiRequest<{ success: boolean; message: string }>('/api/admin/restore-examples', {
-          method: 'POST'
-        });
-      } catch {
-        return { success: true, message: 'Sample example records restored successfully.' };
-      }
+      tryServerRequest('/api/admin/restore-examples', { method: 'POST' }).catch(() => {});
+      return { success: true, message: 'Sample example records restored successfully.' };
     }
   }
 };

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Brother } from '../types/index.ts';
 import { api, tokenStorage } from '../lib/api.ts';
+import { cloudDb } from '../lib/firestoreService.ts';
 
 interface AuthContextType {
   user: Brother | null;
@@ -58,6 +59,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     fetchMembers();
     refreshUser();
+
+    // Real-time Firestore subscription: updates picture and profile live across devices
+    let unsubscribe: (() => void) | undefined;
+    try {
+      unsubscribe = cloudDb.subscribeBrothers((liveBrothers) => {
+        if (Array.isArray(liveBrothers) && liveBrothers.length > 0) {
+          setFamilyMembers(liveBrothers);
+          const active = tokenStorage.getUser();
+          if (active) {
+            const fresh = liveBrothers.find((b) => b.id === active.id);
+            if (fresh && (fresh.avatar_url !== active.avatar_url || fresh.full_name !== active.full_name || fresh.phone_number !== active.phone_number)) {
+              setUser(fresh);
+              tokenStorage.setUser(fresh);
+            }
+          }
+        }
+      });
+    } catch (err) {
+      console.warn('Real-time subscription error:', err);
+    }
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
   }, []);
 
   const login = async (emailOrKey: string, passcode: string) => {

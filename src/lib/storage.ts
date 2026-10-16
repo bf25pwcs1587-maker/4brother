@@ -493,7 +493,7 @@ export function initializeLocalStorageDb() {
   const initialAnnouncements: FamilyAnnouncement[] = [
     {
       id: generateId(),
-      title: 'Welcome to the 4 Brothers Hub (4broters)',
+      title: 'Welcome to the 4 Brothers Hub',
       content: 'Dedicated family hub for Mahmood Khan, Azhar Mahmood, Talha Mahmood, and Sabaz Ali Khan. Your private notes and personal financial logs are strictly confidential to you, while shared properties, common tasks, and family events are united in this hub.',
       tag: 'Family Welcome',
       is_pinned: 1,

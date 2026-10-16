@@ -31,7 +31,7 @@ function AppContent() {
         </div>
         <div className="w-8 h-8 border-3 border-white/20 border-t-emerald-400 rounded-full animate-spin mb-3"></div>
         <p className="text-xs text-slate-400 tracking-wider font-semibold uppercase">
-          Initializing 4broters Family Hub...
+          Initializing 4 Brothers Family Hub...
         </p>
       </div>
     );
@@ -123,7 +123,7 @@ function AppContent() {
       <footer className="bg-white border-t border-slate-200/80 py-6 text-xs text-slate-500 mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <span className="font-extrabold text-slate-900 font-serif-title">4broters</span>
+            <span className="font-extrabold text-slate-900 font-serif-title">4 Brothers</span>
             <span>· Dedicated family hub for Mahmood Khan, Azhar Mahmood, Talha Mahmood & Sabaz Ali Khan</span>
           </div>
 

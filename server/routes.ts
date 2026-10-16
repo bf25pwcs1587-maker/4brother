@@ -789,7 +789,7 @@ apiRouter.post('/shared/tasks', requireAuth, (req: AuthRequest, res: Response) =
       targetPhone = u?.phone_number || null;
     }
 
-    const waText = `Assalamu Alaikum ${assignedName}!\nYou have been assigned a task on 4broters:\n📋 Task: ${title.trim()}\n${due_date ? `📅 Due Date: ${due_date} ${due_time || ''}\n` : ''}👤 Assigned by: ${req.user!.full_name}\n${description ? `📝 Details: ${description.trim()}\n` : ''}Check it on 4broters Family Hub.`;
+    const waText = `Assalamu Alaikum ${assignedName}!\nYou have been assigned a task on 4 Brothers:\n📋 Task: ${title.trim()}\n${due_date ? `📅 Due Date: ${due_date} ${due_time || ''}\n` : ''}👤 Assigned by: ${req.user!.full_name}\n${description ? `📝 Details: ${description.trim()}\n` : ''}Check it on 4 Brothers Family Hub.`;
 
     res.status(201).json({
       ...created,

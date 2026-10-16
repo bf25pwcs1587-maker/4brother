@@ -189,7 +189,7 @@ export const DeploymentGuideModal: React.FC<DeploymentGuideModalProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-lg font-bold text-slate-900 font-serif-title">4broters Architecture & Setup Guide</h3>
+                <h3 className="text-lg font-bold text-slate-900 font-serif-title">4 Brothers Architecture & Setup Guide</h3>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800">
                   Backend Verified
                 </span>
@@ -482,7 +482,7 @@ VITE_SUPABASE_ANON_KEY="your-public-anon-key"`}
 
         {/* Modal Footer */}
         <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-          <span>Website name: <strong className="text-slate-800">4broters</strong></span>
+          <span>Website name: <strong className="text-slate-800">4 Brothers</strong></span>
           <button
             onClick={onClose}
             className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-medium transition-colors"

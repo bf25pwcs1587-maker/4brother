@@ -164,7 +164,7 @@ export const SignInModal: React.FC<SignInModalProps> = ({ onOpenGuide, onSuccess
             <span>Private Family Portal</span>
           </div>
 
-          <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight font-serif-title">4broters</h1>
+          <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight font-serif-title">4 Brothers</h1>
           <p className="text-slate-300 text-xs sm:text-sm mt-1 max-w-md mx-auto">
             Click any brother below to open their private & shared hub immediately
           </p>

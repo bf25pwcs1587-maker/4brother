@@ -446,7 +446,7 @@ export function seedExamples() {
 
   insertAnn.run(
     crypto.randomUUID(),
-    'Welcome to 4broters Family Hub',
+    'Welcome to 4 Brothers Family Hub',
     'This secure platform keeps each brother’s personal finances, tasks, and private notes strictly separated while providing our joint space for shared family income, shared tasks, plans, and announcements.',
     'System / Welcome',
     1,

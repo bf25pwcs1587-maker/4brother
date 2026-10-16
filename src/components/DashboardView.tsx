@@ -109,7 +109,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     return (
       <div className="py-20 flex flex-col items-center justify-center">
         <div className="w-10 h-10 border-4 border-slate-200 border-t-indigo-600 rounded-full animate-spin mb-3"></div>
-        <p className="text-xs text-slate-500 font-medium">Loading 4broters family dashboard...</p>
+        <p className="text-xs text-slate-500 font-medium">Loading 4 Brothers family dashboard...</p>
       </div>
     );
   }
@@ -444,7 +444,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             const phone = liveMember?.phone_number || brother.phone;
             const displayName = liveMember?.full_name || brother.name;
             const avatarImg = liveMember?.avatar_url || null;
-            const pingMsg = `Assalamu Alaikum ${displayName}! Checking in from 4broters Family Hub.`;
+            const pingMsg = `Assalamu Alaikum ${displayName}! Checking in from 4 Brothers Family Hub.`;
             const waUrl = getWhatsAppUrl(phone, pingMsg);
 
             return (

@@ -64,11 +64,11 @@ export const WhatsAppAlertModal: React.FC<WhatsAppAlertModalProps> = ({
 
   // Construct standard formatted message
   const composeMessage = (recipientName: string) => {
-    return `Assalamu Alaikum ${recipientName}!\nYou have been assigned a task on 4broters:\n\n📋 Task: ${taskTitle}\n${
+    return `Assalamu Alaikum ${recipientName}!\nYou have been assigned a task on 4 Brothers:\n\n📋 Task: ${taskTitle}\n${
       dueDate ? `📅 Due Date: ${dueDate} ${dueTime || ''}\n` : ''
     }👤 Assigned by: ${sender}\n${
       description ? `📝 Details: ${description}\n` : ''
-    }\nCheck 4broters Family Hub to view & update.`;
+    }\nCheck 4 Brothers Family Hub to view & update.`;
   };
 
   const isAllBrothers = assignedToName === 'All Brothers' || !assignedToName;
